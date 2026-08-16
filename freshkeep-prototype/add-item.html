@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Add Food</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"></head><body><main class="screen"><div class="statusbar"><span>9:41</span><span class="dynamic-island"></span><span class="status-icons"><i class="fa-solid fa-signal"></i><i class="fa-solid fa-wifi"></i><i class="fa-solid fa-battery-full"></i></span></div><div class="toast"></div>
+<header class="back-title"><button class="icon-button" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><h1>Add food</h1><span></span></header>
+<div class="segmented"><button class="segment active"><i class="fa-solid fa-pen"></i>&nbsp; Manual</button><button class="segment"><i class="fa-solid fa-camera"></i>&nbsp; Scan</button></div>
+<label class="label" for="food-name">Food name</label><input class="input" id="food-name" value="Strawberries" aria-label="Food name">
+<div class="input-row"><div><label class="label" for="category">Category</label><select class="input" id="category"><option>Produce</option><option>Dairy</option><option>Protein</option></select></div><div><label class="label" for="quantity">Quantity</label><input class="input" id="quantity" value="1 box"></div></div>
+<label class="label" for="expiry">Expiration date</label><input class="input" id="expiry" type="date" value="2026-08-06">
+<label class="label">Photo</label><button class="photo-drop" style="width:100%" data-toast="Camera opened"><span><i class="fa-solid fa-camera-retro"></i><strong>Add a photo</strong><br><small>Helps identify items at a glance</small></span></button>
+<label class="label" for="location">Fridge location</label><select class="input" id="location"><option>Produce drawer</option><option>Top shelf</option><option>Door</option></select>
+<div style="margin-top:24px"><button class="primary" data-toast="Strawberries added to your fridge">Add to my fridge</button></div>
+</main><script src="app.js"></script></body></html>
