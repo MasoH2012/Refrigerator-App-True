@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../domain/models/food_item.dart';
+import '../../../domain/models/refrigerator_model.dart';
 import '../application/auth_controller.dart';
 
 class AccountSetupScreen extends ConsumerStatefulWidget {
@@ -15,28 +16,26 @@ class AccountSetupScreen extends ConsumerStatefulWidget {
 
 class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
   final _accountKey = GlobalKey<FormState>();
-  final _fridgeKey = GlobalKey<FormState>();
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _confirmation = TextEditingController();
-  final _refrigerator = TextEditingController();
   final _items = <FoodItem>[];
+  RefrigeratorModel? _selectedRefrigerator;
   var _step = 0;
   var _obscurePassword = true;
+  var _showRefrigeratorError = false;
 
   @override
   void dispose() {
     _username.dispose();
     _password.dispose();
     _confirmation.dispose();
-    _refrigerator.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: false,
           title: const Text('Set up FreshKeep'),
         ),
         body: SafeArea(
@@ -115,8 +114,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
-          const Text(
-              'Your account stays signed in on this device until you sign out.',
+          const Text('You will sign in again when you reopen the app.',
               textAlign: TextAlign.center),
           const SizedBox(height: 28),
           Form(
@@ -189,39 +187,54 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
               'This helps FreshKeep recommend the right shelf and drawer for every item.',
               textAlign: TextAlign.center),
           const SizedBox(height: 28),
-          Form(
-            key: _fridgeKey,
-            child: TextFormField(
-              controller: _refrigerator,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Brand and model',
-                hintText: 'Example: Samsung RF28T5001SR',
-                prefixIcon: Icon(Icons.kitchen),
-              ),
-              validator: (value) => value == null || value.trim().length < 3
-                  ? 'Enter your refrigerator brand or model.'
-                  : null,
+          LayoutBuilder(
+            builder: (context, constraints) => DropdownMenu<RefrigeratorModel>(
+              width: constraints.maxWidth,
+              enableFilter: true,
+              enableSearch: true,
+              requestFocusOnTap: true,
+              leadingIcon: const Icon(Icons.kitchen),
+              label: const Text('Refrigerator brand and model'),
+              hintText: 'Search real refrigerator models',
+              dropdownMenuEntries: RefrigeratorCatalog.alphabetized
+                  .map(
+                    (model) => DropdownMenuEntry<RefrigeratorModel>(
+                      value: model,
+                      label: model.displayName,
+                    ),
+                  )
+                  .toList(),
+              onSelected: (model) => setState(() {
+                _selectedRefrigerator = model;
+                _showRefrigeratorError = false;
+              }),
             ),
           ),
-          const SizedBox(height: 16),
-          Text('Popular examples',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              'Samsung French Door',
-              'LG InstaView',
-              'Whirlpool Side-by-Side'
-            ]
-                .map((model) => ActionChip(
-                    label: Text(model),
-                    onPressed: () =>
-                        setState(() => _refrigerator.text = model)))
-                .toList(),
+          if (_showRefrigeratorError) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Choose a refrigerator from the list.',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+          const SizedBox(height: 12),
+          const Text(
+            'Type a brand or model number to filter. Only listed models can be selected.',
           ),
+          if (_selectedRefrigerator case final model?) ...[
+            const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.check)),
+                title: Text(model.shortName),
+                subtitle: Text(
+                  '${model.layoutLabel} · ${model.capacityCuFt} cu. ft.\n'
+                  '${model.refrigeratorShelves} shelves · ${model.crisperDrawers} crispers · ${model.freezerLevels} freezer levels',
+                ),
+                isThreeLine: true,
+              ),
+            ),
+          ],
         ],
       );
 
@@ -271,7 +284,10 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
 
   Future<void> _continue() async {
     if (_step == 0 && !_accountKey.currentState!.validate()) return;
-    if (_step == 1 && !_fridgeKey.currentState!.validate()) return;
+    if (_step == 1 && _selectedRefrigerator == null) {
+      setState(() => _showRefrigeratorError = true);
+      return;
+    }
     if (_step < 2) {
       setState(() => _step++);
       return;
@@ -284,7 +300,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
     final error = await ref.read(authProvider.notifier).register(
           username: _username.text,
           password: _password.text,
-          refrigeratorModel: _refrigerator.text,
+          refrigeratorModel: _selectedRefrigerator!.id,
           initialItems: _items,
         );
     if (error != null && mounted) {

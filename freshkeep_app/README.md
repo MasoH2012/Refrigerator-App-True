@@ -23,6 +23,12 @@ expiration date. Multiple profiles are supported on one device, and each keeps
 an independent refrigerator inventory. A cold launch or explicit sign-out
 requires authentication again. The password itself is never stored.
 
+Refrigerator selection uses an alphabetized, searchable catalog of verified
+real-world models. Users must select a catalog entry; arbitrary free text is
+not accepted. Each record includes its documented layout, shelf, crisper,
+pantry, door-bin, and freezer structure, which drives the model-specific
+diagram in the Organize tab.
+
 ## Run
 
 ```sh

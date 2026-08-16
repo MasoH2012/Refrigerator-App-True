@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../domain/models/food_item.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/inventory_controller.dart';
+import '../application/inventory_sort.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -17,6 +18,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   var _didShowAlert = false;
+  var _sortOrder = InventorySortOrder.expirationSoonest;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +37,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             error: (error, stack) =>
                 _ErrorState(onRetry: () => ref.invalidate(inventoryProvider)),
             data: (items) {
+              final sortedItems = sortFoodItems(items, _sortOrder);
               final urgent = items
                   .where(
                     (item) => item.daysUntilExpiration(DateTime.now()) <= 3,
@@ -85,12 +88,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 'Your fridge',
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
-                              Text('${items.length} items · sorted by expiry'),
+                              Text(
+                                '${items.length} items · ${_sortOrder.shortLabel}',
+                              ),
                             ],
                           ),
                           IconButton.filledTonal(
-                            onPressed: () {},
-                            icon: const Icon(Icons.tune),
+                            tooltip: 'Sort items',
+                            onPressed: _showSortSheet,
+                            icon: const Icon(Icons.sort),
                           ),
                         ],
                       ),
@@ -105,10 +111,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
                       sliver: SliverList.separated(
-                        itemCount: items.length,
+                        itemCount: sortedItems.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) =>
-                            _FoodCard(item: items[index]),
+                            _FoodCard(item: sortedItems[index]),
                       ),
                     ),
                 ],
@@ -161,6 +167,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+
+  Future<void> _showSortSheet() async {
+    final selected = await showModalBottomSheet<InventorySortOrder>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Text(
+                  'Sort by',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+              ),
+              ...InventorySortOrder.values.map(
+                (order) => ListTile(
+                  leading: Icon(_sortIcon(order)),
+                  title: Text(order.label),
+                  trailing: order == _sortOrder
+                      ? Icon(
+                          Icons.check_circle,
+                          color: Theme.of(context).colorScheme.primary,
+                        )
+                      : null,
+                  selected: order == _sortOrder,
+                  onTap: () => Navigator.pop(context, order),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && selected != _sortOrder && mounted) {
+      setState(() => _sortOrder = selected);
+    }
+  }
+
+  IconData _sortIcon(InventorySortOrder order) => switch (order) {
+        InventorySortOrder.expirationSoonest => Icons.schedule,
+        InventorySortOrder.expirationLatest => Icons.calendar_month_outlined,
+        InventorySortOrder.nameAscending => Icons.sort_by_alpha,
+        InventorySortOrder.categoryAscending => Icons.category_outlined,
+      };
 }
 
 class _Header extends StatelessWidget {

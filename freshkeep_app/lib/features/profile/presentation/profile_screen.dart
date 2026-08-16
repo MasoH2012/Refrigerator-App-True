@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../domain/models/refrigerator_model.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
 
@@ -18,6 +19,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final profile = ref.watch(authProvider).valueOrNull?.profile;
     final itemCount = ref.watch(inventoryProvider).valueOrNull?.length ?? 0;
+    final refrigerator = profile == null
+        ? null
+        : RefrigeratorCatalog.byId(profile.refrigeratorModel);
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
@@ -36,7 +40,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           Text(
-            profile?.refrigeratorModel ?? '',
+            refrigerator?.shortName ?? profile?.refrigeratorModel ?? '',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
@@ -93,7 +97,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ListTile(
                   leading: const Icon(Icons.kitchen_outlined),
                   title: const Text('Refrigerator'),
-                  subtitle: Text(profile?.refrigeratorModel ?? ''),
+                  subtitle: Text(
+                    refrigerator?.displayName ??
+                        profile?.refrigeratorModel ??
+                        '',
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                 ),
                 const Divider(height: 1),
