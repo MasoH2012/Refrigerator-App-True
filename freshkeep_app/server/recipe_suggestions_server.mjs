@@ -1,0 +1,475 @@
+import { createServer } from 'node:http';
+
+const port = Number.parseInt(process.env.PORT ?? '8787', 10);
+const model = process.env.OPENAI_MODEL ?? 'gpt-5';
+const allowedOrigin = process.env.ALLOWED_ORIGIN ?? '*';
+const apiKey = process.env.OPENAI_API_KEY;
+const rateWindows = new Map();
+
+const recipeSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['recipes'],
+  properties: {
+    recipes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'name',
+          'description',
+          'minutes',
+          'calories',
+          'servings',
+          'origin',
+          'sourceUrl',
+          'tags',
+          'ingredients',
+          'steps',
+        ],
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          minutes: { type: 'integer' },
+          calories: { type: 'integer' },
+          servings: { type: 'integer' },
+          origin: { type: 'string', enum: ['adapted', 'aiGenerated'] },
+          sourceUrl: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          ingredients: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['name', 'quantity', 'source', 'inventoryItemId'],
+              properties: {
+                name: { type: 'string' },
+                quantity: { type: 'string' },
+                source: {
+                  type: 'string',
+                  enum: ['fridge', 'pantry', 'shopping'],
+                },
+                inventoryItemId: {
+                  anyOf: [{ type: 'string' }, { type: 'null' }],
+                },
+              },
+            },
+          },
+          steps: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+};
+
+const instructions = `
+You are the recipe planner for FreshKeep. Return 6 to 8 varied, practical recipes.
+
+Priorities, in order:
+1. Obey avoided ingredients, vegetarian, fridge-only, time, must-use, and servings constraints.
+2. Use safe, non-expired fridge ingredients, especially items expiring in 0 to 3 days.
+3. Search the web for established recipes when useful, or create an original recipe when no strong online match exists.
+4. Minimize shopping ingredients, vary cuisines and meal types, and keep steps concise for a home cook.
+
+Rules:
+- A fridge ingredient must reference the exact inventory item ID supplied by the app.
+- Never claim an ingredient is in the fridge unless it matches that inventory item.
+- Pantry means an ordinary staple such as salt, pepper, cooking oil, or water.
+- Put every other required ingredient in shopping.
+- Never include an avoided ingredient, including an obvious derivative.
+- Mark vegetarian recipes with the tag "vegetarian".
+- Calories are estimates per serving. Do not make medical or allergy-safety claims.
+- For a web-discovered recipe, rewrite and adapt the instructions rather than copying prose, use origin "adapted", and provide the exact source URL returned by web search.
+- For an original recipe, use origin "aiGenerated" and an empty sourceUrl.
+- Do not repeat the same recipe idea within a response. Use the request nonce to produce a fresh set on refresh.
+`;
+
+const server = createServer(async (request, response) => {
+  setCorsHeaders(response);
+
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204).end();
+    return;
+  }
+
+  if (request.method === 'GET' && request.url === '/health') {
+    sendJson(response, 200, {
+      status: 'ok',
+      modelConfigured: Boolean(model),
+      apiKeyConfigured: Boolean(apiKey),
+    });
+    return;
+  }
+
+  if (request.method !== 'POST' || request.url !== '/recipe-suggestions') {
+    sendJson(response, 404, { error: 'Not found.' });
+    return;
+  }
+
+  if (!withinRateLimit(request.socket.remoteAddress ?? 'unknown')) {
+    sendJson(response, 429, { error: 'Too many requests. Try again shortly.' });
+    return;
+  }
+
+  if (!apiKey) {
+    sendJson(response, 503, {
+      error: 'The recipe service is not configured.',
+    });
+    return;
+  }
+
+  try {
+    const payload = await readJson(request);
+    const validatedInput = validateInput(payload);
+    const openAIResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        store: false,
+        instructions,
+        input: JSON.stringify(validatedInput),
+        tools: [{ type: 'web_search', search_context_size: 'low' }],
+        tool_choice: 'auto',
+        max_tool_calls: 2,
+        include: ['web_search_call.action.sources'],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'freshkeep_recipe_suggestions',
+            strict: true,
+            schema: recipeSchema,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+
+    const result = await openAIResponse.json();
+    if (!openAIResponse.ok) {
+      const message = result?.error?.message ?? 'OpenAI request failed.';
+      throw new Error(message);
+    }
+
+    const outputText = extractOutputText(result);
+    const generated = JSON.parse(outputText);
+    const webSources = collectWebSources(result);
+    const recipes = validateRecipes(
+      generated.recipes,
+      validatedInput,
+      webSources,
+    );
+    if (recipes.length === 0) {
+      throw new Error('No generated recipe passed the safety filters.');
+    }
+
+    sendJson(response, 200, {
+      recipes,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const status = error instanceof RequestError ? error.status : 502;
+    sendJson(response, status, {
+      error: status < 500 ? error.message : 'Recipe generation failed.',
+    });
+  }
+});
+
+server.listen(port, '0.0.0.0', () => {
+  process.stdout.write(`FreshKeep recipe service listening on port ${port}\n`);
+});
+
+function validateInput(payload) {
+  if (!payload || !Array.isArray(payload.items) || !payload.filters) {
+    throw new RequestError(400, 'Items and filters are required.');
+  }
+
+  const items = payload.items
+    .filter(
+      (item) =>
+        item &&
+        typeof item.id === 'string' &&
+        typeof item.name === 'string' &&
+        Number.isInteger(item.daysUntilExpiration) &&
+        item.daysUntilExpiration >= 0,
+    )
+    .slice(0, 100)
+    .map((item) => ({
+      id: item.id.slice(0, 128),
+      name: item.name.slice(0, 120),
+      quantity: String(item.quantity ?? '').slice(0, 80),
+      category: String(item.category ?? '').slice(0, 40),
+      expirationDate: String(item.expirationDate ?? '').slice(0, 40),
+      daysUntilExpiration: item.daysUntilExpiration,
+    }));
+
+  if (items.length === 0) {
+    throw new RequestError(400, 'At least one non-expired item is required.');
+  }
+
+  const inputIds = new Set(items.map((item) => item.id));
+  const rawFilters = payload.filters;
+  const filters = {
+    prioritizeExpiring: rawFilters.prioritizeExpiring !== false,
+    fridgeOnly: rawFilters.fridgeOnly === true,
+    underThirtyMinutes: rawFilters.underThirtyMinutes === true,
+    vegetarian: rawFilters.vegetarian === true,
+    mustUseItemIds: Array.isArray(rawFilters.mustUseItemIds)
+      ? rawFilters.mustUseItemIds.filter((id) => inputIds.has(id)).slice(0, 20)
+      : [],
+    avoidedIngredients: Array.isArray(rawFilters.avoidedIngredients)
+      ? rawFilters.avoidedIngredients
+          .map((value) => String(value).trim().toLowerCase().slice(0, 80))
+          .filter(Boolean)
+          .slice(0, 30)
+      : [],
+    servings: [1, 2, 4, 6].includes(rawFilters.servings)
+      ? rawFilters.servings
+      : 2,
+  };
+
+  const requestNonce = String(payload.requestNonce ?? Date.now()).slice(0, 40);
+  return { items, filters, requestNonce };
+}
+
+function validateRecipes(recipes, input, webSources) {
+  if (!Array.isArray(recipes)) return [];
+  const itemMap = new Map(input.items.map((item) => [item.id, item]));
+
+  return recipes
+    .slice(0, 8)
+    .map((recipe, index) =>
+      reconcileRecipe(recipe, itemMap, index, webSources),
+    )
+    .filter((recipe) => recipe !== null)
+    .filter((recipe) => passesFilters(recipe, input.filters));
+}
+
+function reconcileRecipe(recipe, itemMap, index, webSources) {
+  if (
+    !recipe ||
+    typeof recipe.name !== 'string' ||
+    !Array.isArray(recipe.ingredients) ||
+    !Array.isArray(recipe.steps) ||
+    recipe.ingredients.length === 0 ||
+    recipe.steps.length === 0
+  ) {
+    return null;
+  }
+
+  const items = [...itemMap.values()];
+  const ingredients = recipe.ingredients.map((ingredient) => {
+    let match = itemMap.get(ingredient.inventoryItemId);
+    if (!match || !ingredientsMatch(ingredient.name, match.name)) {
+      match = items.find((item) => ingredientsMatch(ingredient.name, item.name));
+    }
+
+    if (match) {
+      return {
+        name: String(ingredient.name).slice(0, 120),
+        quantity: String(ingredient.quantity ?? '').slice(0, 80),
+        source: 'fridge',
+        inventoryItemId: match.id,
+      };
+    }
+
+    return {
+      name: String(ingredient.name).slice(0, 120),
+      quantity: String(ingredient.quantity ?? '').slice(0, 80),
+      source: ingredient.source === 'pantry' ? 'pantry' : 'shopping',
+      inventoryItemId: null,
+    };
+  });
+
+  const verifiedSource = verifiedSourceUrl(recipe.sourceUrl, webSources);
+  return {
+    id: `ai-${Date.now()}-${index}`,
+    name: recipe.name.slice(0, 120),
+    description: String(recipe.description ?? '').slice(0, 320),
+    minutes: clampInteger(recipe.minutes, 1, 720),
+    calories: clampInteger(recipe.calories, 0, 5000),
+    servings: clampInteger(recipe.servings, 1, 20),
+    origin: verifiedSource ? 'adapted' : 'aiGenerated',
+    sourceUrl: verifiedSource,
+    imageUrl: '',
+    tags: Array.isArray(recipe.tags)
+      ? recipe.tags.map((tag) => String(tag).toLowerCase().slice(0, 40))
+      : [],
+    ingredients,
+    steps: recipe.steps.slice(0, 20).map((step) => String(step).slice(0, 500)),
+    caloriesAreEstimated: true,
+  };
+}
+
+function passesFilters(recipe, filters) {
+  if (filters.underThirtyMinutes && recipe.minutes > 30) return false;
+  if (filters.vegetarian && !isVegetarian(recipe)) return false;
+  if (
+    filters.fridgeOnly &&
+    recipe.ingredients.some((ingredient) => ingredient.source === 'shopping')
+  ) {
+    return false;
+  }
+
+  const usedIds = new Set(
+    recipe.ingredients.map((ingredient) => ingredient.inventoryItemId).filter(Boolean),
+  );
+  if (!filters.mustUseItemIds.every((id) => usedIds.has(id))) return false;
+
+  const searchable = normalize(
+    `${recipe.name} ${recipe.ingredients.map((item) => item.name).join(' ')}`,
+  );
+  return !filters.avoidedIngredients.some((item) =>
+    searchable.includes(normalize(item)),
+  );
+}
+
+function isVegetarian(recipe) {
+  if (!recipe.tags.includes('vegetarian')) return false;
+  const searchable = normalize(
+    `${recipe.name} ${recipe.ingredients.map((item) => item.name).join(' ')}`,
+  );
+  const nonVegetarianTerms = [
+    'beef',
+    'pork',
+    'chicken',
+    'turkey',
+    'lamb',
+    'salmon',
+    'tuna',
+    'fish',
+    'shrimp',
+    'prawn',
+    'crab',
+    'lobster',
+    'bacon',
+    'ham',
+    'sausage',
+    'gelatin',
+  ];
+  return !nonVegetarianTerms.some((term) =>
+    new RegExp(`(^| )${term}( |$)`).test(searchable),
+  );
+}
+
+function extractOutputText(result) {
+  for (const output of result.output ?? []) {
+    for (const content of output.content ?? []) {
+      if (content.type === 'output_text' && typeof content.text === 'string') {
+        return content.text;
+      }
+    }
+  }
+  throw new Error('OpenAI returned no structured recipe output.');
+}
+
+function collectWebSources(result) {
+  const sources = new Map();
+  const visit = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.url === 'string') {
+      const key = sourceKey(value.url);
+      if (key) sources.set(key, value.url);
+    }
+    Object.values(value).forEach(visit);
+  };
+
+  for (const output of result.output ?? []) {
+    if (output.type === 'web_search_call') visit(output);
+  }
+  return sources;
+}
+
+function verifiedSourceUrl(requestedUrl, webSources) {
+  const key = sourceKey(requestedUrl);
+  return key ? String(webSources.get(key) ?? '').slice(0, 500) : '';
+}
+
+function sourceKey(value) {
+  try {
+    const url = new URL(String(value));
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
+  } catch {
+    return '';
+  }
+}
+
+function ingredientsMatch(left, right) {
+  const a = normalize(left);
+  const b = normalize(right);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  const aTokens = new Set(a.split(' '));
+  return b.split(' ').some((token) => aTokens.has(token));
+}
+
+function normalize(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(baby|fresh|atlantic|large|small)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function clampInteger(value, minimum, maximum) {
+  const parsed = Number.isFinite(value) ? Math.round(value) : minimum;
+  return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+function withinRateLimit(address) {
+  const now = Date.now();
+  const current = rateWindows.get(address);
+  if (!current || current.resetAt <= now) {
+    rateWindows.set(address, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= 20;
+}
+
+async function readJson(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 128 * 1024) {
+      throw new RequestError(413, 'Request is too large.');
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new RequestError(400, 'Request body must be valid JSON.');
+  }
+}
+
+function setCorsHeaders(response) {
+  response.setHeader('access-control-allow-origin', allowedOrigin);
+  response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  response.setHeader('access-control-allow-headers', 'content-type, authorization');
+  response.setHeader('vary', 'origin');
+  response.setHeader('x-content-type-options', 'nosniff');
+}
+
+function sendJson(response, status, value) {
+  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(value));
+}
+
+class RequestError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
