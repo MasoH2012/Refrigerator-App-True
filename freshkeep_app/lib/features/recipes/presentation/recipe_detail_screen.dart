@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/recipe.dart';
 import '../application/recipe_suggestions_controller.dart';
+import 'cooking_mode_screen.dart';
 
 class RecipeDetailScreen extends ConsumerWidget {
   const RecipeDetailScreen({required this.recipeId, super.key});
@@ -167,8 +168,11 @@ class RecipeDetailScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Cooking mode started')),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CookingModeScreen(recipe: recipe),
+                      fullscreenDialog: true,
+                    ),
                   ),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Start cooking'),

@@ -173,6 +173,10 @@ const server = createServer(async (request, response) => {
     });
   } catch (error) {
     const status = error instanceof RequestError ? error.status : 502;
+    if (status >= 500) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`FreshKeep recipe generation error: ${detail}\n`);
+    }
     sendJson(response, status, {
       error: status < 500 ? error.message : 'Recipe generation failed.',
     });
