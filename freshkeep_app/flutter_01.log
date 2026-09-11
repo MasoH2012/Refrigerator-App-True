@@ -1,0 +1,75 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter run
+
+## exception
+
+ProcessException: ProcessException: The system cannot find the file specified (at ../../runtime/bin/process_win.cc:579)
+  Command: C:\Users\mason\develop\flutter\bin\cache\dart-sdk\bin\dart.exe development-service --vm-service-uri=http://127.0.0.1:44456/vsjwr4AkSMg= --bind-address=127.0.0.1 --bind-port=0 --serve-devtools "--app-name=Unknown web app"
+
+```
+#0      _ProcessImpl._start (dart:io-patch/process_patch.dart:411:33)
+#1      Process.start (dart:io-patch/process_patch.dart:42:20)
+#2      DartDevelopmentServiceLauncher.start (package:dds/dds_launcher.dart:116:35)
+#3      DebugService.startDartDevelopmentService (package:dwds/src/services/debug_service.dart:124:49)
+#4      DevHandler._createAppDebugServices (package:dwds/src/handlers/dev_handler.dart:949:32)
+#5      DevHandler._createChromeAppServices (package:dwds/src/handlers/dev_handler.dart:380:12)
+<asynchronous suspension>
+#6      DevHandler.loadAppServices (package:dwds/src/handlers/dev_handler.dart:346:23)
+<asynchronous suspension>
+#7      DevHandler.createDebugConnectionForChrome (package:dwds/src/handlers/dev_handler.dart:663:30)
+<asynchronous suspension>
+#8      Dwds.debugConnection (package:dwds/dart_web_debug_service.dart:68:14)
+<asynchronous suspension>
+#9      WebDevFS.connect.<anonymous closure> (package:flutter_tools/src/isolated/devfs_web.dart:173:17)
+<asynchronous suspension>
+```
+
+## flutter doctor
+
+```
+[32m[✓][39m Flutter (Channel stable, 3.47.2, on Microsoft Windows [Version 10.0.26200.9168], locale en-US) [10.1s]
+    [32m•[39m Flutter version 3.47.2 on channel stable at C:\Users\mason\develop\flutter
+    [32m•[39m Upstream repository https://github.com/flutter/flutter.git
+    [32m•[39m Framework revision d3b14c8769 (6 days ago), 2026-08-26 16:07:51 -0700
+    [32m•[39m Engine revision a804b26164
+    [32m•[39m Dart version 3.13.2
+    [32m•[39m DevTools version 2.60.0
+    [32m•[39m Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android,
+      enable-ios, cli-animations, enable-native-assets, enable-record-use, enable-swift-package-manager,
+      omit-legacy-version-file, enable-lldb-debugging, enable-uiscene-migration
+
+[32m[✓][39m Windows Version (Windows 11 or higher, 25H2, 2009) [50.3s]
+
+[32m[✓][39m Android toolchain - develop for Android devices (Android SDK version 36.0.0) [83.5s]
+    [32m•[39m Android SDK at C:\Users\mason\AppData\Local\Android\Sdk
+    [32m•[39m Emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)
+    [32m•[39m Platform android-36.1, build-tools 36.0.0
+    [32m•[39m ANDROID_HOME = C:\Users\mason\AppData\Local\Android\Sdk
+    [32m•[39m Java binary at: C:\Users\mason\Android Studio\jbr\bin\java
+      This is the JDK bundled with the latest Android Studio installation on this machine.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    [32m•[39m Java version OpenJDK Runtime Environment (build 21.0.10+-14961533-b1163.108)
+    [32m•[39m All Android licenses accepted.
+
+[32m[✓][39m Chrome - develop for the web [4.3s]
+    [32m•[39m Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[32m[✓][39m Visual Studio - develop Windows apps (Visual Studio Community 2026 18.8.2) [4.3s]
+    [32m•[39m Visual Studio at C:\Program Files\Microsoft Visual Studio\18\Community
+    [32m•[39m Visual Studio Community 2026 version 18.8.12023.21
+    [32m•[39m Windows 10 SDK version 10.0.26100.0
+
+[32m[✓][39m Connected device (3 available) [5.1s]
+    [32m•[39m Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.26200.9168]
+    [32m•[39m Chrome (web)      • chrome  • web-javascript • Google Chrome 152.0.7977.82
+    [32m•[39m Edge (web)        • edge    • web-javascript • Microsoft Edge 150.0.4078.65
+
+[32m[✓][39m Network resources [4.9s]
+    [32m•[39m All expected network resources are available.
+
+[32m•[39m No issues found!
+```
