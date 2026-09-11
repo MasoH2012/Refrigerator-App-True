@@ -9,6 +9,12 @@ class UserProfile {
   final String refrigeratorModel;
   final DateTime createdAt;
 
+  UserProfile copyWith({String? refrigeratorModel}) => UserProfile(
+        username: username,
+        refrigeratorModel: refrigeratorModel ?? this.refrigeratorModel,
+        createdAt: createdAt,
+      );
+
   String get initials {
     final parts = username.trim().split(RegExp(r'\s+'));
     return parts.take(2).map((part) => part[0].toUpperCase()).join();

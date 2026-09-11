@@ -5,6 +5,7 @@ import 'auth_repository.dart';
 import 'inventory_repository.dart';
 import 'local_auth_repository.dart';
 import 'preferences_inventory_repository.dart';
+import 'user_preferences_repository.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return LocalAuthRepository(ref.watch(sharedPreferencesProvider));
@@ -12,4 +13,9 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 
 final inventoryRepositoryProvider = Provider<InventoryRepository>((ref) {
   return PreferencesInventoryRepository(ref.watch(sharedPreferencesProvider));
+});
+
+final userPreferencesRepositoryProvider =
+    Provider<UserPreferencesRepository>((ref) {
+  return UserPreferencesRepository(ref.watch(sharedPreferencesProvider));
 });

@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../domain/models/food_item.dart';
+import '../../../domain/models/app_preferences.dart';
+import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/inventory_controller.dart';
 import '../application/inventory_sort.dart';
@@ -38,15 +40,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _ErrorState(onRetry: () => ref.invalidate(inventoryProvider)),
             data: (items) {
               final sortedItems = sortFoodItems(items, _sortOrder);
+              final profile = ref.watch(authProvider).valueOrNull?.profile;
+              final settings = profile == null
+                  ? const AppPreferences()
+                  : ref
+                      .read(userPreferencesRepositoryProvider)
+                      .load(profile.username);
               final urgent = items
                   .where(
-                    (item) => item.daysUntilExpiration(DateTime.now()) <= 3,
+                    (item) =>
+                        settings.notificationsEnabled &&
+                        item.daysUntilExpiration(DateTime.now()) >= 0 &&
+                        item.daysUntilExpiration(DateTime.now()) <=
+                            settings.warningDays,
                   )
                   .toList();
               if (!_didShowAlert && urgent.isNotEmpty) {
                 _didShowAlert = true;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _showExpirySheet(context, urgent);
+                  if (mounted) {
+                    _showExpirySheet(context, urgent, settings.warningDays);
+                  }
                 });
               }
               return CustomScrollView(
@@ -71,7 +85,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       sliver: SliverToBoxAdapter(
                         child: _ExpiryBanner(
                           count: urgent.length,
-                          onTap: () => _showExpirySheet(context, urgent),
+                          onTap: () => _showExpirySheet(
+                            context,
+                            urgent,
+                            settings.warningDays,
+                          ),
                         ),
                       ),
                     ),
@@ -126,7 +144,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _showExpirySheet(BuildContext context, List<FoodItem> items) {
+  Future<void> _showExpirySheet(
+    BuildContext context,
+    List<FoodItem> items,
+    int warningDays,
+  ) {
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -143,7 +165,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 4),
-              Text('${items.length} items expire within three days'),
+              Text(
+                '${items.length} items expire within $warningDays ${warningDays == 1 ? 'day' : 'days'}',
+              ),
               const SizedBox(height: 16),
               ...items.map(
                 (item) => ListTile(
@@ -309,23 +333,56 @@ class _FoodCard extends ConsumerWidget {
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           subtitle: Text('${item.category.name} · ${item.quantity}'),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _expiryText(days),
-                style: TextStyle(color: color, fontWeight: FontWeight.w700),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _expiryText(days),
+                    style: TextStyle(color: color, fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    DateFormat('MMM d').format(item.expirationDate),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              Text(
-                DateFormat('MMM d').format(item.expirationDate),
-                style: Theme.of(context).textTheme.bodySmall,
+              IconButton(
+                tooltip: 'Delete ${item.name}',
+                onPressed: () => _confirmDelete(context, ref),
+                icon: const Icon(Icons.delete_outline),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${item.name}?'),
+        content: const Text('This item will be removed from your fridge.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(inventoryProvider.notifier).removeItem(item.id);
+    }
   }
 }
 

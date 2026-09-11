@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/refrigerator_model.dart';
+import '../../../domain/models/app_preferences.dart';
+import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
-import '../../inventory/application/inventory_controller.dart';
+import '../../recipes/application/recipe_suggestions_controller.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -14,14 +16,22 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   var _notifications = true;
+  var _warningDays = 3;
+  var _dietaryPreference = 'No preference';
+  var _allergies = 'None added';
+  String? _settingsUsername;
 
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(authProvider).valueOrNull?.profile;
-    final itemCount = ref.watch(inventoryProvider).valueOrNull?.length ?? 0;
     final refrigerator = profile == null
         ? null
         : RefrigeratorCatalog.byId(profile.refrigeratorModel);
+    if (profile != null && _settingsUsername != profile.username) {
+      _settingsUsername = profile.username;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _loadSettings(profile.username));
+    }
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
@@ -44,18 +54,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                  child: _Stat(value: '$itemCount', label: 'Items tracked')),
-              const SizedBox(width: 8),
-              const Expanded(child: _Stat(value: '8', label: 'Meals saved')),
-              const SizedBox(width: 8),
-              const Expanded(
-                  child: _Stat(value: '3.4 lb', label: 'Waste avoided')),
-            ],
-          ),
-          const SizedBox(height: 24),
           Text('Preferences', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 10),
           Card(
@@ -63,27 +61,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               children: [
                 SwitchListTile.adaptive(
                   value: _notifications,
-                  onChanged: (value) => setState(() => _notifications = value),
+                  onChanged: _setNotifications,
                   secondary: const Icon(Icons.notifications_outlined),
                   title: const Text('Expiry notifications'),
                 ),
                 const Divider(height: 1),
-                const ListTile(
-                  leading: Icon(Icons.calendar_today_outlined),
-                  title: Text('Warn me before'),
-                  trailing: Text('3 days'),
+                ListTile(
+                  leading: const Icon(Icons.calendar_today_outlined),
+                  title: const Text('Warn me before'),
+                  subtitle: Text('$_warningDays days before expiration'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _chooseWarningDays,
                 ),
                 const Divider(height: 1),
-                const ListTile(
-                  leading: Icon(Icons.eco_outlined),
-                  title: Text('Dietary preferences'),
-                  trailing: Icon(Icons.chevron_right),
+                ListTile(
+                  leading: const Icon(Icons.eco_outlined),
+                  title: const Text('Dietary preferences'),
+                  subtitle: Text(_dietaryPreference),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _chooseDietaryPreference,
                 ),
                 const Divider(height: 1),
-                const ListTile(
-                  leading: Icon(Icons.block_outlined),
-                  title: Text('Allergies & dislikes'),
-                  trailing: Icon(Icons.chevron_right),
+                ListTile(
+                  leading: const Icon(Icons.block_outlined),
+                  title: const Text('Allergies & dislikes'),
+                  subtitle: Text(_allergies),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _editAllergies,
                 ),
               ],
             ),
@@ -103,12 +107,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         '',
                   ),
                   trailing: const Icon(Icons.chevron_right),
+                  onTap: _showRefrigeratorDetails,
                 ),
                 const Divider(height: 1),
-                const ListTile(
-                  leading: Icon(Icons.shield_outlined),
-                  title: Text('Privacy & data'),
-                  trailing: Icon(Icons.chevron_right),
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('Privacy & data'),
+                  subtitle: const Text('Your data is stored on this device'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _showPrivacyDetails,
                 ),
                 const Divider(height: 1),
                 ListTile(
@@ -146,25 +153,194 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
     if (confirmed == true) await ref.read(authProvider.notifier).signOut();
   }
-}
 
-class _Stat extends StatelessWidget {
-  const _Stat({required this.value, required this.label});
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
-          child: Column(
-            children: [
-              Text(value, style: Theme.of(context).textTheme.titleLarge),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall),
-            ],
+  Future<void> _chooseWarningDays() async {
+    final controller = TextEditingController(text: '$_warningDays');
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Warn me before expiration'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Days before expiration',
+            helperText: 'Enter any whole number from 0 onward.',
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final days = int.tryParse(controller.text.trim());
+              if (days == null || days < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Enter a whole number of 0 or more.'),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context, days);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (selected != null && mounted) {
+      setState(() => _warningDays = selected);
+      await _saveSettings();
+    }
+  }
+
+  Future<void> _chooseDietaryPreference() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Dietary preferences'),
+        children: ['No preference', 'Vegetarian', 'Vegan', 'Pescatarian']
+            .map((preference) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, preference),
+                  child: Text(preference),
+                ))
+            .toList(),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() => _dietaryPreference = selected);
+      await _saveSettings();
+    }
+  }
+
+  Future<void> _editAllergies() async {
+    final controller = TextEditingController(
+      text: _allergies == 'None added' ? '' : _allergies,
+    );
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Allergies & dislikes'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Example: peanuts, shellfish',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value != null && mounted) {
+      setState(() => _allergies = value.isEmpty ? 'None added' : value);
+      await _saveSettings();
+    }
+  }
+
+  Future<void> _showRefrigeratorDetails() async {
+    final profile = ref.read(authProvider).valueOrNull?.profile;
+    final selected = await showDialog<RefrigeratorModel>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Choose your refrigerator'),
+        children: RefrigeratorCatalog.models
+            .map(
+              (model) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, model),
+                child: Text(model.displayName),
+              ),
+            )
+            .toList(),
+      ),
+    );
+    if (selected == null || profile == null || !mounted) return;
+    final error = await ref
+        .read(authProvider.notifier)
+        .updateRefrigeratorModel(selected.id);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Refrigerator changed to ${selected.shortName}.')),
       );
+    }
+  }
+
+  void _showPrivacyDetails() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.shield_outlined),
+        title: const Text('Privacy & data'),
+        content: const Text(
+          'FreshKeep keeps your profile and refrigerator inventory on this device. Recipe requests use only the ingredients needed to generate suggestions.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _setNotifications(bool enabled) {
+    setState(() => _notifications = enabled);
+    _saveSettings();
+  }
+
+  void _loadSettings(String username) {
+    final settings = ref.read(userPreferencesRepositoryProvider).load(username);
+    if (!mounted) return;
+    setState(() {
+      _notifications = settings.notificationsEnabled;
+      _warningDays = settings.warningDays;
+      _dietaryPreference = settings.dietaryPreference;
+      _allergies = settings.allergies.isEmpty
+          ? 'None added'
+          : settings.allergies.join(', ');
+    });
+  }
+
+  Future<void> _saveSettings() async {
+    final username = ref.read(authProvider).valueOrNull?.profile?.username;
+    if (username == null) return;
+    final allergies = _allergies == 'None added'
+        ? const <String>[]
+        : _allergies
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList();
+    await ref.read(userPreferencesRepositoryProvider).save(
+          username,
+          AppPreferences(
+            notificationsEnabled: _notifications,
+            warningDays: _warningDays,
+            dietaryPreference: _dietaryPreference,
+            allergies: allergies,
+          ),
+        );
+    ref.invalidate(recipeSuggestionsProvider);
+  }
 }

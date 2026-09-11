@@ -76,6 +76,21 @@ class LocalAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<UserProfile> updateRefrigeratorModel({
+    required String username,
+    required String refrigeratorModel,
+  }) async {
+    final key = _normalizeUsername(username);
+    final profiles = _readProfiles();
+    final profile = profiles[key];
+    if (profile == null) throw StateError('Profile not found.');
+    final updated = profile.copyWith(refrigeratorModel: refrigeratorModel);
+    profiles[key] = updated;
+    await _writeProfiles(profiles);
+    return updated;
+  }
+
+  @override
   Future<void> signOut() async {}
 
   Map<String, UserProfile> _readProfiles() {

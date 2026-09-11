@@ -18,7 +18,12 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
   Future<List<FoodItem>> build() async {
     final ownerId = ref.watch(authProvider).valueOrNull?.profile?.username;
     if (ownerId == null) return const [];
-    return _sorted(await _repository.loadItems(ownerId));
+    final loaded = await _repository.loadItems(ownerId);
+    final merged = _mergeDuplicateItems(loaded);
+    if (merged.length != loaded.length) {
+      await _repository.saveItems(ownerId, merged);
+    }
+    return _sorted(merged);
   }
 
   Future<void> addItem({
@@ -31,7 +36,7 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
     final current = state.valueOrNull ?? const <FoodItem>[];
     final ownerId = ref.read(authProvider).valueOrNull?.profile?.username;
     if (ownerId == null) return;
-    final next = _sorted([
+    final next = _sorted(_mergeDuplicateItems([
       ...current,
       FoodItem(
         id: const Uuid().v4(),
@@ -42,7 +47,7 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
         zone: zone,
         createdAt: DateTime.now(),
       ),
-    ]);
+    ]));
     state = AsyncData(next);
     await _repository.saveItems(ownerId, next);
   }
@@ -59,4 +64,51 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
 
   List<FoodItem> _sorted(List<FoodItem> items) =>
       [...items]..sort((a, b) => a.expirationDate.compareTo(b.expirationDate));
+
+  List<FoodItem> _mergeDuplicateItems(List<FoodItem> items) {
+    final merged = <String, FoodItem>{};
+    for (final item in items) {
+      final key = _duplicateKey(item);
+      final previous = merged[key];
+      if (previous == null) {
+        merged[key] = item;
+        continue;
+      }
+      merged[key] = FoodItem(
+        id: previous.id,
+        name: previous.name,
+        expirationDate: previous.expirationDate,
+        category: previous.category,
+        quantity: _combineQuantities(previous.quantity, item.quantity),
+        zone: previous.zone,
+        imageUrl: previous.imageUrl ?? item.imageUrl,
+        createdAt: previous.createdAt,
+      );
+    }
+    return merged.values.toList();
+  }
+
+  String _duplicateKey(FoodItem item) {
+    final date = item.expirationDate;
+    return '${item.name.trim().toLowerCase()}|${date.year}-${date.month}-${date.day}';
+  }
+
+  String _combineQuantities(String first, String second) {
+    final firstMatch = RegExp(r'^\s*(\d+(?:\.\d+)?)\s*(.*)$').firstMatch(first);
+    final secondMatch =
+        RegExp(r'^\s*(\d+(?:\.\d+)?)\s*(.*)$').firstMatch(second);
+    if (firstMatch != null && secondMatch != null) {
+      final firstUnit = firstMatch.group(2)!.trim();
+      final secondUnit = secondMatch.group(2)!.trim();
+      if (firstUnit.toLowerCase() == secondUnit.toLowerCase()) {
+        final total = double.parse(firstMatch.group(1)!) +
+            double.parse(secondMatch.group(1)!);
+        final formatted = total == total.roundToDouble()
+            ? total.toInt().toString()
+            : total.toString();
+        return firstUnit.isEmpty ? formatted : '$formatted $firstUnit';
+      }
+    }
+    return '$first + $second';
+  }
 }

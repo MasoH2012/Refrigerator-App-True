@@ -84,4 +84,25 @@ class AuthController extends AsyncNotifier<AuthSession> {
       AuthSession(profile: null, isAuthenticated: false, hasProfiles: true),
     );
   }
+
+  Future<String?> updateRefrigeratorModel(String refrigeratorModel) async {
+    final profile = state.valueOrNull?.profile;
+    if (profile == null) return 'Sign in before changing your refrigerator.';
+    try {
+      final updated = await _authRepository.updateRefrigeratorModel(
+        username: profile.username,
+        refrigeratorModel: refrigeratorModel,
+      );
+      state = AsyncData(
+        AuthSession(
+          profile: updated,
+          isAuthenticated: true,
+          hasProfiles: true,
+        ),
+      );
+      return null;
+    } on Object catch (error) {
+      return error.toString();
+    }
+  }
 }

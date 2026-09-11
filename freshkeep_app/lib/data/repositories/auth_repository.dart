@@ -30,5 +30,10 @@ abstract interface class AuthRepository {
     required String password,
   });
 
+  Future<UserProfile> updateRefrigeratorModel({
+    required String username,
+    required String refrigeratorModel,
+  });
+
   Future<void> signOut();
 }
