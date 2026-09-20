@@ -3,19 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/refrigerator_model.dart';
+import '../../../domain/models/fridge_organization.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
+import '../application/fridge_organization_controller.dart';
 
 class OrganizationScreen extends ConsumerWidget {
   const OrganizationScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final items =
-        ref.watch(inventoryProvider).valueOrNull ?? const <FoodItem>[];
+    final items = ref.watch(inventoryProvider).value ?? const <FoodItem>[];
     final savedModelId =
-        ref.watch(authProvider).valueOrNull?.profile?.refrigeratorModel ?? '';
+        ref.watch(authProvider).value?.profile?.refrigeratorModel ?? '';
     final refrigerator = RefrigeratorCatalog.byId(savedModelId);
+    final organization = ref.watch(fridgeOrganizationProvider);
 
     return SafeArea(
       child: ListView(
@@ -39,6 +41,43 @@ class OrganizationScreen extends ConsumerWidget {
           else ...[
             _ModelSummary(model: refrigerator),
             const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: organization.isLoading
+                  ? null
+                  : () =>
+                      ref.read(fridgeOrganizationProvider.notifier).generate(),
+              icon: organization.isLoading
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              label: Text(
+                organization.isLoading
+                    ? 'Organizing your fridge…'
+                    : 'Auto-organize with AI',
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (organization.hasError)
+              _OrganizationError(message: organization.error.toString()),
+            if (organization.value case final plan?) ...[
+              _OrganizationPlanCard(
+                plan: plan,
+                onApply: () async {
+                  await ref
+                      .read(fridgeOrganizationProvider.notifier)
+                      .applyPlan(plan);
+                  ref.invalidate(fridgeOrganizationProvider);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('AI organization applied.')),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
             _FridgeDiagram(model: refrigerator, items: items),
             const SizedBox(height: 14),
             const Row(
@@ -74,6 +113,84 @@ class OrganizationScreen extends ConsumerWidget {
     );
   }
 }
+
+class _OrganizationPlanCard extends StatelessWidget {
+  const _OrganizationPlanCard({required this.plan, required this.onApply});
+
+  final FridgeOrganizationPlan plan;
+  final Future<void> Function() onApply;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.auto_awesome),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'AI organization plan',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(plan.summary),
+              const SizedBox(height: 12),
+              ...plan.assignments.map(
+                (assignment) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  leading: const Icon(Icons.arrow_forward),
+                  title: Text(assignment.itemName),
+                  subtitle: Text(
+                    '${_zoneLabel(assignment.zone)} · ${assignment.reason}',
+                  ),
+                  trailing: Text(assignment.size),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: onApply,
+                icon: const Icon(Icons.check),
+                label: const Text('Apply organization'),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _OrganizationError extends StatelessWidget {
+  const _OrganizationError({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: Theme.of(context).colorScheme.errorContainer,
+        child: ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('AI organization unavailable'),
+          subtitle:
+              Text(message.replaceFirst('FridgeOrganizationException: ', '')),
+        ),
+      );
+}
+
+String _zoneLabel(FridgeZone zone) => switch (zone) {
+      FridgeZone.topShelf => 'Top shelf',
+      FridgeZone.middleShelf => 'Middle shelf',
+      FridgeZone.lowerShelf => 'Lower shelf',
+      FridgeZone.highHumidity => 'High-humidity crisper',
+      FridgeZone.lowHumidity => 'Low-humidity crisper',
+      FridgeZone.door => 'Door bin',
+    };
 
 class _ModelSummary extends StatelessWidget {
   const _ModelSummary({required this.model});
@@ -287,6 +404,7 @@ class _FridgeDiagram extends StatelessWidget {
       );
 
   List<String> _names(Iterable<FridgeZone> zones) => items
+      .where((item) => item.storageLocation == StorageLocation.fridge)
       .where((item) => zones.contains(item.zone))
       .map((item) => item.name)
       .toList();

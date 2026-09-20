@@ -112,6 +112,7 @@ class HybridRecipeSuggestionService implements RecipeSuggestionService {
                     'name': item.name,
                     'quantity': item.quantity,
                     'category': item.category.name,
+                    'storageLocation': item.storageLocation.name,
                     'expirationDate': item.expirationDate.toIso8601String(),
                     'daysUntilExpiration': item.daysUntilExpiration(_now()),
                   },
@@ -220,7 +221,9 @@ class HybridRecipeSuggestionService implements RecipeSuggestionService {
 
     if (match != null) {
       return ingredient.copyWith(
-        source: RecipeIngredientSource.fridge,
+        source: match.storageLocation == StorageLocation.fridge
+            ? RecipeIngredientSource.fridge
+            : RecipeIngredientSource.pantry,
         inventoryItemId: match.id,
       );
     }
@@ -235,7 +238,15 @@ class HybridRecipeSuggestionService implements RecipeSuggestionService {
 
   bool _passesFilters(Recipe recipe, RecipeFilters filters) {
     if (filters.underThirtyMinutes && recipe.minutes > 30) return false;
-    if (filters.fridgeOnly && recipe.missingIngredientCount > 0) return false;
+    if (filters.fridgeOnly &&
+        recipe.ingredients.any(
+          (ingredient) =>
+              ingredient.source == RecipeIngredientSource.shopping ||
+              (ingredient.inventoryItemId != null &&
+                  ingredient.source != RecipeIngredientSource.fridge),
+        )) {
+      return false;
+    }
     if (filters.vegetarian && !_isVegetarian(recipe)) return false;
     if (!filters.mustUseItemIds.every(recipe.usedInventoryItemIds.contains)) {
       return false;

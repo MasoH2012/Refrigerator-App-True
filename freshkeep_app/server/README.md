@@ -2,9 +2,12 @@
 
 This small Node.js service keeps the OpenAI API key outside the Flutter app. It
 uses structured output to create recipes from the live fridge inventory and can
-use OpenAI web search to discover source recipes. Web-derived source URLs are
-verified against the tool results before being returned to the app. It requires
-Node.js 18 or newer and has no package dependencies.
+use OpenAI web search to discover source recipes. It also exposes an AI fridge
+organization endpoint that recommends a safe zone for every item based on the
+selected refrigerator model, food category, freshness, and package size.
+Web-derived source URLs are verified against the tool results before being
+returned to the app. It requires Node.js 18 or newer and has no package
+dependencies.
 
 ## Local development
 
@@ -17,7 +20,8 @@ node server/recipe_suggestions_server.mjs
 In a debug build, FreshKeep automatically connects to
 `http://10.0.2.2:8787/recipe-suggestions` on the Android emulator and
 `http://127.0.0.1:8787/recipe-suggestions` on desktop, web, and the iOS
-simulator. Once the server is running, start FreshKeep normally:
+simulator. The AI organizer uses the same server at `/fridge-organization`.
+Once the server is running, start FreshKeep normally:
 
 ```powershell
 flutter run

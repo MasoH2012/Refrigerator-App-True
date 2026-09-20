@@ -52,7 +52,7 @@ class AuthController extends AsyncNotifier<AuthSession> {
     required String username,
     required String password,
   }) async {
-    final previous = state.valueOrNull;
+    final previous = state.value;
     state = const AsyncLoading();
     final profile = await _authRepository.signIn(
       username: username,
@@ -86,7 +86,7 @@ class AuthController extends AsyncNotifier<AuthSession> {
   }
 
   Future<String?> updateRefrigeratorModel(String refrigeratorModel) async {
-    final profile = state.valueOrNull?.profile;
+    final profile = state.value?.profile;
     if (profile == null) return 'Sign in before changing your refrigerator.';
     try {
       final updated = await _authRepository.updateRefrigeratorModel(

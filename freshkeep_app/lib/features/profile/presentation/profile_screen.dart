@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../domain/models/refrigerator_model.dart';
 import '../../../domain/models/app_preferences.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../recipes/application/recipe_suggestions_controller.dart';
+import '../../household/application/household_controller.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -23,10 +25,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = ref.watch(authProvider).valueOrNull?.profile;
+    final profile = ref.watch(authProvider).value?.profile;
     final refrigerator = profile == null
         ? null
         : RefrigeratorCatalog.byId(profile.refrigeratorModel);
+    final household = ref.watch(householdProvider).value?.active;
     if (profile != null && _settingsUsername != profile.username) {
       _settingsUsername = profile.username;
       WidgetsBinding.instance
@@ -108,6 +111,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _showRefrigeratorDetails,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.home_work_outlined),
+                  title: const Text('Household sharing'),
+                  subtitle: Text(
+                    household == null
+                        ? 'Create or join a shared fridge'
+                        : '${household.name} · ${household.members.length} member${household.members.length == 1 ? '' : 's'}',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/household'),
                 ),
                 const Divider(height: 1),
                 ListTile(
@@ -254,7 +269,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _showRefrigeratorDetails() async {
-    final profile = ref.read(authProvider).valueOrNull?.profile;
+    final profile = ref.read(authProvider).value?.profile;
     final selected = await showDialog<RefrigeratorModel>(
       context: context,
       builder: (context) => SimpleDialog(
@@ -323,7 +338,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _saveSettings() async {
-    final username = ref.read(authProvider).valueOrNull?.profile?.username;
+    final username = ref.read(authProvider).value?.profile?.username;
     if (username == null) return;
     final allergies = _allergies == 'None added'
         ? const <String>[]

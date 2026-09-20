@@ -40,7 +40,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _ErrorState(onRetry: () => ref.invalidate(inventoryProvider)),
             data: (items) {
               final sortedItems = sortFoodItems(items, _sortOrder);
-              final profile = ref.watch(authProvider).valueOrNull?.profile;
+              final profile = ref.watch(authProvider).value?.profile;
               final settings = profile == null
                   ? const AppPreferences()
                   : ref
@@ -70,12 +70,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
                     sliver: SliverToBoxAdapter(
                       child: _Header(
-                        username: ref
-                                .watch(authProvider)
-                                .valueOrNull
-                                ?.profile
-                                ?.username ??
-                            'there',
+                        username:
+                            ref.watch(authProvider).value?.profile?.username ??
+                                'there',
                       ),
                     ),
                   ),
@@ -103,7 +100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Your fridge',
+                                'Your food',
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
                               Text(
@@ -111,10 +108,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ),
                             ],
                           ),
-                          IconButton.filledTonal(
-                            tooltip: 'Sort items',
-                            onPressed: _showSortSheet,
-                            icon: const Icon(Icons.sort),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton.filledTonal(
+                                tooltip: 'Shopping list',
+                                onPressed: () => context.push('/shopping'),
+                                icon: const Icon(Icons.shopping_cart_outlined),
+                              ),
+                              const SizedBox(width: 6),
+                              IconButton.filledTonal(
+                                tooltip: 'Sort items',
+                                onPressed: _showSortSheet,
+                                icon: const Icon(Icons.sort),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -312,18 +320,7 @@ class _FoodCard extends ConsumerWidget {
             : Theme.of(context).colorScheme.primary;
     return Dismissible(
       key: ValueKey(item.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Icon(Icons.delete_outline),
-      ),
-      onDismissed: (_) =>
-          ref.read(inventoryProvider.notifier).removeItem(item.id),
+      direction: DismissDirection.none,
       child: Card(
         child: ListTile(
           contentPadding: const EdgeInsets.all(10),
@@ -332,7 +329,9 @@ class _FoodCard extends ConsumerWidget {
             item.name,
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
-          subtitle: Text('${item.category.name} · ${item.quantity}'),
+          subtitle: Text(
+            '${item.storageLocation == StorageLocation.outOfFridge ? 'Out of fridge · ' : ''}${item.category.name} · ${item.quantity}',
+          ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -351,37 +350,100 @@ class _FoodCard extends ConsumerWidget {
                 ],
               ),
               IconButton(
-                tooltip: 'Delete ${item.name}',
-                onPressed: () => _confirmDelete(context, ref),
+                tooltip: 'Remove quantity from ${item.name}',
+                onPressed: () => _removeQuantity(context, ref),
                 icon: const Icon(Icons.delete_outline),
               ),
             ],
           ),
+          onTap: () => context.push('/add', extra: item),
         ),
       ),
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _removeQuantity(BuildContext context, WidgetRef ref) async {
+    final match =
+        RegExp(r'^\s*(\d+(?:\.\d+)?)\s*(.*)$').firstMatch(item.quantity);
+    if (match == null) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Remove ${item.name}?'),
+          content: Text(
+            'The quantity “${item.quantity}” is not numeric, so this item can only be removed in full.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remove item'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        await ref.read(inventoryProvider.notifier).removeItem(item.id);
+      }
+      return;
+    }
+
+    final available = double.parse(match.group(1)!);
+    final unit = match.group(2)!.trim();
+    final controller = TextEditingController(text: '1');
+    final amount = await showDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete ${item.name}?'),
-        content: const Text('This item will be removed from your fridge.'),
+        title: Text('Remove ${item.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+                'You have ${item.quantity}. How much would you like to remove?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Amount to remove',
+                suffixText: unit.isEmpty ? null : unit,
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+            onPressed: () {
+              final value = double.tryParse(controller.text.trim());
+              if (value == null || value <= 0 || value > available) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text('Enter an amount from 0 to $available.')),
+                );
+                return;
+              }
+              Navigator.pop(context, value);
+            },
+            child: const Text('Remove'),
           ),
         ],
       ),
     );
-    if (confirmed == true) {
-      await ref.read(inventoryProvider.notifier).removeItem(item.id);
+    controller.dispose();
+    if (amount != null) {
+      await ref
+          .read(inventoryProvider.notifier)
+          .removeQuantity(item.id, amount);
     }
   }
 }

@@ -4,7 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../../data/repositories/inventory_repository.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../domain/models/food_item.dart';
-import '../../auth/application/auth_controller.dart';
+import '../../household/application/household_controller.dart';
 
 final inventoryProvider =
     AsyncNotifierProvider<InventoryController, List<FoodItem>>(
@@ -16,7 +16,7 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
 
   @override
   Future<List<FoodItem>> build() async {
-    final ownerId = ref.watch(authProvider).valueOrNull?.profile?.username;
+    final ownerId = ref.watch(householdDataOwnerProvider);
     if (ownerId == null) return const [];
     final loaded = await _repository.loadItems(ownerId);
     final merged = _mergeDuplicateItems(loaded);
@@ -32,9 +32,10 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
     required FoodCategory category,
     required String quantity,
     required FridgeZone zone,
+    StorageLocation storageLocation = StorageLocation.fridge,
   }) async {
-    final current = state.valueOrNull ?? const <FoodItem>[];
-    final ownerId = ref.read(authProvider).valueOrNull?.profile?.username;
+    final current = state.value ?? const <FoodItem>[];
+    final ownerId = ref.read(householdDataOwnerProvider);
     if (ownerId == null) return;
     final next = _sorted(_mergeDuplicateItems([
       ...current,
@@ -45,6 +46,7 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
         category: category,
         quantity: quantity.trim(),
         zone: zone,
+        storageLocation: storageLocation,
         createdAt: DateTime.now(),
       ),
     ]));
@@ -52,12 +54,65 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
     await _repository.saveItems(ownerId, next);
   }
 
-  Future<void> removeItem(String id) async {
-    final ownerId = ref.read(authProvider).valueOrNull?.profile?.username;
+  Future<void> updateItem(FoodItem updatedItem) async {
+    final ownerId = ref.read(householdDataOwnerProvider);
     if (ownerId == null) return;
-    final next = (state.valueOrNull ?? const <FoodItem>[])
+    final current = state.value ?? const <FoodItem>[];
+    final next = _sorted(
+      _mergeDuplicateItems([
+        for (final item in current)
+          item.id == updatedItem.id ? updatedItem : item,
+      ]),
+    );
+    state = AsyncData(next);
+    await _repository.saveItems(ownerId, next);
+  }
+
+  Future<void> removeItem(String id) async {
+    final ownerId = ref.read(householdDataOwnerProvider);
+    if (ownerId == null) return;
+    final next = (state.value ?? const <FoodItem>[])
         .where((item) => item.id != id)
         .toList();
+    state = AsyncData(next);
+    await _repository.saveItems(ownerId, next);
+  }
+
+  Future<void> removeQuantity(String id, double amount) async {
+    if (amount <= 0) return;
+    final ownerId = ref.read(householdDataOwnerProvider);
+    if (ownerId == null) return;
+    final current = state.value ?? const <FoodItem>[];
+    final item = current.where((value) => value.id == id).firstOrNull;
+    if (item == null) return;
+    final match =
+        RegExp(r'^\s*(\d+(?:\.\d+)?)\s*(.*)$').firstMatch(item.quantity);
+    if (match == null) {
+      await removeItem(id);
+      return;
+    }
+    final available = double.parse(match.group(1)!);
+    if (amount >= available) {
+      await removeItem(id);
+      return;
+    }
+    final remaining = available - amount;
+    final formatted = remaining == remaining.roundToDouble()
+        ? remaining.toInt().toString()
+        : remaining.toString();
+    final unit = match.group(2)!.trim();
+    final updatedItem = item.copyWith(
+      quantity: unit.isEmpty ? formatted : '$formatted $unit',
+    );
+    await replaceItems([
+      for (final value in current) value.id == id ? updatedItem : value,
+    ]);
+  }
+
+  Future<void> replaceItems(List<FoodItem> items) async {
+    final ownerId = ref.read(householdDataOwnerProvider);
+    if (ownerId == null) return;
+    final next = _sorted(items);
     state = AsyncData(next);
     await _repository.saveItems(ownerId, next);
   }
@@ -90,7 +145,7 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
 
   String _duplicateKey(FoodItem item) {
     final date = item.expirationDate;
-    return '${item.name.trim().toLowerCase()}|${date.year}-${date.month}-${date.day}';
+    return '${item.storageLocation.name}|${item.name.trim().toLowerCase()}|${date.year}-${date.month}-${date.day}';
   }
 
   String _combineQuantities(String first, String second) {

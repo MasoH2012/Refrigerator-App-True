@@ -57,7 +57,7 @@ class RecipeSuggestionsController
   @override
   Future<RecipeSuggestionResult> build() async {
     final items = await ref.watch(inventoryProvider.future);
-    final profile = ref.watch(authProvider).valueOrNull?.profile;
+    final profile = ref.watch(authProvider).value?.profile;
     final preferences = profile == null
         ? const AppPreferences()
         : ref.read(userPreferencesRepositoryProvider).load(profile.username);
@@ -80,7 +80,7 @@ class RecipeSuggestionsController
     if (filters != null) _filters = filters;
     final requestVersion = ++_requestVersion;
     final items = await ref.read(inventoryProvider.future);
-    final profile = ref.read(authProvider).valueOrNull?.profile;
+    final profile = ref.read(authProvider).value?.profile;
     final preferences = profile == null
         ? const AppPreferences()
         : ref.read(userPreferencesRepositoryProvider).load(profile.username);

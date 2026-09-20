@@ -63,6 +63,40 @@ const recipeSchema = {
   },
 };
 
+const organizationSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'assignments'],
+  properties: {
+    summary: { type: 'string' },
+    assignments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['itemId', 'itemName', 'zone', 'reason', 'size'],
+        properties: {
+          itemId: { type: 'string' },
+          itemName: { type: 'string' },
+          zone: {
+            type: 'string',
+            enum: [
+              'topShelf',
+              'middleShelf',
+              'lowerShelf',
+              'highHumidity',
+              'lowHumidity',
+              'door',
+            ],
+          },
+          reason: { type: 'string' },
+          size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        },
+      },
+    },
+  },
+};
+
 const instructions = `
 You are the recipe planner for FreshKeep. Return 6 to 8 varied, practical recipes.
 
@@ -76,6 +110,7 @@ Rules:
 - A fridge ingredient must reference the exact inventory item ID supplied by the app.
 - Never claim an ingredient is in the fridge unless it matches that inventory item.
 - Pantry means an ordinary staple such as salt, pepper, cooking oil, or water.
+- An inventory item marked outOfFridge is available as a pantry item, not a fridge item.
 - Put every other required ingredient in shopping.
 - Never include an avoided ingredient, including an obvious derivative.
 - Mark vegetarian recipes with the tag "vegetarian".
@@ -99,6 +134,11 @@ const server = createServer(async (request, response) => {
       modelConfigured: Boolean(model),
       apiKeyConfigured: Boolean(apiKey),
     });
+    return;
+  }
+
+  if (request.method === 'POST' && request.url === '/fridge-organization') {
+    await handleFridgeOrganization(request, response);
     return;
   }
 
@@ -186,6 +226,144 @@ const server = createServer(async (request, response) => {
 server.listen(port, '0.0.0.0', () => {
   process.stdout.write(`FreshKeep recipe service listening on port ${port}\n`);
 });
+
+const organizationInstructions = `
+You are FreshKeep's refrigerator organization expert. Create a practical plan for the exact refrigerator model and inventory supplied.
+
+Rules:
+- Assign every supplied inventory item exactly once using its exact itemId and itemName.
+- Only use these refrigerator zones: topShelf, middleShelf, lowerShelf, highHumidity, lowHumidity, door.
+- Keep raw meat, poultry, seafood, and anything that could leak on lowerShelf.
+- Put leafy greens and vegetables in highHumidity; most fruit in lowHumidity.
+- Use door for condiments, beverages, and items that tolerate temperature changes.
+- Use topShelf for ready-to-eat foods and leftovers; use middleShelf for dairy, eggs, and everyday items.
+- Consider package size and quantity: large or bulky items belong on lowerShelf or a wide drawer when possible.
+- Put food expiring soon where it is visible and easy to reach, while preserving food safety.
+- Explain the main reason for each placement in one short sentence. Mark size as small, medium, or large.
+`;
+
+async function handleFridgeOrganization(request, response) {
+  if (!withinRateLimit(request.socket.remoteAddress ?? 'unknown')) {
+    sendJson(response, 429, { error: 'Too many requests. Try again shortly.' });
+    return;
+  }
+  if (!apiKey) {
+    sendJson(response, 503, { error: 'The AI service is not configured.' });
+    return;
+  }
+  try {
+    const input = validateOrganizationInput(await readJson(request));
+    const openAIResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        store: false,
+        instructions: organizationInstructions,
+        input: JSON.stringify(input),
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'freshkeep_fridge_organization',
+            strict: true,
+            schema: organizationSchema,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    const result = await openAIResponse.json();
+    if (!openAIResponse.ok) {
+      throw new Error(result?.error?.message ?? 'OpenAI request failed.');
+    }
+    const generated = JSON.parse(extractOutputText(result));
+    const assignments = validateOrganizationAssignments(generated, input);
+    sendJson(response, 200, {
+      summary: String(generated.summary ?? 'Organization plan created.').slice(0, 320),
+      assignments,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const status = error instanceof RequestError ? error.status : 502;
+    if (status >= 500) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`FreshKeep organization error: ${detail}\n`);
+    }
+    sendJson(response, status, {
+      error: status < 500 ? error.message : 'Fridge organization failed.',
+    });
+  }
+}
+
+function validateOrganizationInput(payload) {
+  if (!payload || !payload.refrigerator || !Array.isArray(payload.items)) {
+    throw new RequestError(400, 'Refrigerator and items are required.');
+  }
+  const items = payload.items
+    .filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string')
+    .slice(0, 100)
+    .map((item) => ({
+      id: item.id.slice(0, 128),
+      name: item.name.slice(0, 120),
+      quantity: String(item.quantity ?? '').slice(0, 80),
+      category: String(item.category ?? '').slice(0, 40),
+      storageLocation: item.storageLocation === 'outOfFridge' ? 'outOfFridge' : 'fridge',
+      currentZone: String(item.currentZone ?? '').slice(0, 40),
+      expirationDate: String(item.expirationDate ?? '').slice(0, 40),
+    }));
+  if (items.length === 0) throw new RequestError(400, 'At least one item is required.');
+  return {
+    refrigerator: {
+      id: String(payload.refrigerator.id ?? '').slice(0, 120),
+      displayName: String(payload.refrigerator.displayName ?? '').slice(0, 200),
+      layout: String(payload.refrigerator.layout ?? '').slice(0, 40),
+      shelves: Number(payload.refrigerator.shelves ?? 0),
+      crisperDrawers: Number(payload.refrigerator.crisperDrawers ?? 0),
+      doorBins: Number(payload.refrigerator.doorBins ?? 0),
+      freezerLevels: Number(payload.refrigerator.freezerLevels ?? 0),
+    },
+    items,
+  };
+}
+
+function validateOrganizationAssignments(generated, input) {
+  const itemMap = new Map(input.items.map((item) => [item.id, item]));
+  const seen = new Set();
+  const assignments = [];
+  for (const assignment of generated?.assignments ?? []) {
+    if (!assignment || !itemMap.has(assignment.itemId) || seen.has(assignment.itemId)) continue;
+    seen.add(assignment.itemId);
+    assignments.push({
+      itemId: assignment.itemId,
+      itemName: itemMap.get(assignment.itemId).name,
+      zone: assignment.zone,
+      reason: String(assignment.reason ?? 'Recommended for freshness and access.').slice(0, 240),
+      size: ['small', 'medium', 'large'].includes(assignment.size) ? assignment.size : 'medium',
+    });
+  }
+  for (const item of input.items) {
+    if (seen.has(item.id)) continue;
+    assignments.push({
+      itemId: item.id,
+      itemName: item.name,
+      zone: fallbackZone(item.category),
+      reason: 'Placed using FreshKeep food-safety defaults.',
+      size: 'medium',
+    });
+  }
+  return assignments;
+}
+
+function fallbackZone(category) {
+  if (category === 'produce') return 'highHumidity';
+  if (category === 'protein') return 'lowerShelf';
+  if (category === 'dairy') return 'middleShelf';
+  if (category === 'beverage') return 'door';
+  return 'topShelf';
+}
 
 function validateInput(payload) {
   if (!payload || !Array.isArray(payload.items) || !payload.filters) {
@@ -276,7 +454,7 @@ function reconcileRecipe(recipe, itemMap, index, webSources) {
       return {
         name: String(ingredient.name).slice(0, 120),
         quantity: String(ingredient.quantity ?? '').slice(0, 80),
-        source: 'fridge',
+        source: match.storageLocation === 'fridge' ? 'fridge' : 'pantry',
         inventoryItemId: match.id,
       };
     }
@@ -314,7 +492,11 @@ function passesFilters(recipe, filters) {
   if (filters.vegetarian && !isVegetarian(recipe)) return false;
   if (
     filters.fridgeOnly &&
-    recipe.ingredients.some((ingredient) => ingredient.source === 'shopping')
+    recipe.ingredients.some(
+      (ingredient) =>
+        ingredient.source === 'shopping' ||
+        (ingredient.inventoryItemId && ingredient.source !== 'fridge'),
+    )
   ) {
     return false;
   }

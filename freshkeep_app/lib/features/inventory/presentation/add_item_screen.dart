@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 import '../../../domain/models/food_item.dart';
 import '../application/inventory_controller.dart';
 
 class AddItemScreen extends ConsumerStatefulWidget {
-  const AddItemScreen({super.key});
+  const AddItemScreen({this.item, super.key});
+
+  final FoodItem? item;
 
   @override
   ConsumerState<AddItemScreen> createState() => _AddItemScreenState();
@@ -19,8 +23,22 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
   final _quantity = TextEditingController(text: '1 item');
   var _category = FoodCategory.produce;
   var _zone = FridgeZone.highHumidity;
+  var _storageLocation = StorageLocation.fridge;
   var _expirationDate = DateTime.now().add(const Duration(days: 5));
   var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.item;
+    if (item == null) return;
+    _name.text = item.name;
+    _quantity.text = item.quantity;
+    _category = item.category;
+    _zone = item.zone;
+    _storageLocation = item.storageLocation;
+    _expirationDate = item.expirationDate;
+  }
 
   @override
   void dispose() {
@@ -31,7 +49,8 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Add food')),
+        appBar:
+            AppBar(title: Text(widget.item == null ? 'Add food' : 'Edit food')),
         body: SafeArea(
           child: Form(
             key: _formKey,
@@ -95,20 +114,40 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
                   onTap: _pickDate,
                 ),
                 const SizedBox(height: 14),
-                DropdownButtonFormField<FridgeZone>(
-                  initialValue: _zone,
+                DropdownButtonFormField<StorageLocation>(
+                  initialValue: _storageLocation,
                   decoration:
-                      const InputDecoration(labelText: 'Fridge location'),
-                  items: FridgeZone.values
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(_zoneName(value)),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => _zone = value!),
+                      const InputDecoration(labelText: 'Storage location'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: StorageLocation.fridge,
+                      child: Text('In fridge'),
+                    ),
+                    DropdownMenuItem(
+                      value: StorageLocation.outOfFridge,
+                      child: Text('Out of fridge'),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _storageLocation = value!),
                 ),
+                if (_storageLocation == StorageLocation.fridge) ...[
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<FridgeZone>(
+                    initialValue: _zone,
+                    decoration:
+                        const InputDecoration(labelText: 'Fridge location'),
+                    items: FridgeZone.values
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(_zoneName(value)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _zone = value!),
+                  ),
+                ],
                 const SizedBox(height: 28),
                 FilledButton(
                   onPressed: _saving ? null : _submit,
@@ -117,7 +156,13 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
                           dimension: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Add to my fridge'),
+                      : Text(
+                          widget.item == null
+                              ? (_storageLocation == StorageLocation.fridge
+                                  ? 'Add to my fridge'
+                                  : 'Add out-of-fridge item')
+                              : 'Save changes',
+                        ),
                 ),
               ],
             ),
@@ -138,48 +183,111 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    await ref.read(inventoryProvider.notifier).addItem(
-          name: _name.text,
+    final controller = ref.read(inventoryProvider.notifier);
+    final existing = widget.item;
+    if (existing == null) {
+      await controller.addItem(
+        name: _name.text,
+        expirationDate: _expirationDate,
+        category: _category,
+        quantity: _quantity.text,
+        zone: _zone,
+        storageLocation: _storageLocation,
+      );
+    } else {
+      await controller.updateItem(
+        existing.copyWith(
+          name: _name.text.trim(),
           expirationDate: _expirationDate,
           category: _category,
-          quantity: _quantity.text,
+          quantity: _quantity.text.trim(),
           zone: _zone,
-        );
+          storageLocation: _storageLocation,
+        ),
+      );
+    }
     if (mounted) context.pop();
   }
 
-  void _showScanner() => showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        builder: (context) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.document_scanner_outlined,
-                size: 64,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Camera recognition',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Camera and OCR plug-ins can connect here without changing the inventory workflow.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              FilledButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Continue manually'),
-              ),
-            ],
+  Future<void> _showScanner() async {
+    final barcode = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('Scan a barcode'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'UPC or EAN barcode',
+              hintText: 'Example: 012345678905',
+            ),
           ),
-        ),
-      );
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('Look up'),
+            ),
+          ],
+        );
+      },
+    );
+    if (barcode == null || barcode.isEmpty || !mounted) return;
+    try {
+      final response = await http
+          .get(Uri.parse(
+              'https://world.openfoodfacts.org/api/v2/product/$barcode.json'))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) throw const FormatException();
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final product = payload['product'] as Map<String, dynamic>?;
+      final name = product?['product_name'] as String?;
+      if (name == null || name.trim().isEmpty) throw const FormatException();
+      setState(() {
+        _name.text = name.trim();
+        _category = _categoryFromBarcode(product);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Food details filled from barcode.')),
+        );
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Barcode not found. Enter the food manually.')),
+        );
+      }
+    }
+  }
+
+  FoodCategory _categoryFromBarcode(Map<String, dynamic>? product) {
+    final tags = '${product?['categories'] ?? ''}'.toLowerCase();
+    if (tags.contains('beverage') || tags.contains('drink')) {
+      return FoodCategory.beverage;
+    }
+    if (tags.contains('dairy') ||
+        tags.contains('milk') ||
+        tags.contains('cheese')) {
+      return FoodCategory.dairy;
+    }
+    if (tags.contains('meat') ||
+        tags.contains('fish') ||
+        tags.contains('chicken')) {
+      return FoodCategory.protein;
+    }
+    if (tags.contains('fruit') || tags.contains('vegetable')) {
+      return FoodCategory.produce;
+    }
+    return FoodCategory.pantry;
+  }
 }
 
 String _zoneName(FridgeZone zone) => switch (zone) {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/recipe.dart';
 import '../application/recipe_suggestions_controller.dart';
+import '../../shopping/application/shopping_list_controller.dart';
 import 'cooking_mode_screen.dart';
 
 class RecipeDetailScreen extends ConsumerWidget {
@@ -14,7 +15,7 @@ class RecipeDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final suggested =
-        ref.watch(recipeSuggestionsProvider).valueOrNull?.recipes ?? const [];
+        ref.watch(recipeSuggestionsProvider).value?.recipes ?? const [];
     final recipe = suggested.where((item) => item.id == recipeId).firstOrNull;
     if (recipe == null) {
       return Scaffold(
@@ -122,6 +123,29 @@ class RecipeDetailScreen extends ConsumerWidget {
                     ),
                     title: Text(ingredient.displayText),
                     subtitle: Text(_ingredientLabel(ingredient.source)),
+                    trailing:
+                        ingredient.source == RecipeIngredientSource.shopping
+                            ? IconButton(
+                                tooltip: 'Add to shopping list',
+                                onPressed: () async {
+                                  await ref
+                                      .read(shoppingListProvider.notifier)
+                                      .addItem(
+                                        name: ingredient.name,
+                                        quantity: ingredient.quantity,
+                                      );
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            '${ingredient.name} added to shopping list.'),
+                                      ),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.add_shopping_cart),
+                              )
+                            : null,
                   ),
                 ),
                 const SizedBox(height: 12),

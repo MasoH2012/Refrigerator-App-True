@@ -21,8 +21,7 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final inventory =
-        ref.watch(inventoryProvider).valueOrNull ?? const <FoodItem>[];
+    final inventory = ref.watch(inventoryProvider).value ?? const <FoodItem>[];
     final suggestions = ref.watch(recipeSuggestionsProvider);
 
     return SafeArea(
