@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "815935303792",
+    "firebase_url": "https://refrigeratorapp-500e2-default-rtdb.firebaseio.com",
+    "project_id": "refrigeratorapp-500e2",
+    "storage_bucket": "refrigeratorapp-500e2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:815935303792:android:c632a0ecc5bb2fa9e704b5",
+        "android_client_info": {
+          "package_name": "com.masonhuang.refrigeratorapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBoeQXh-U3BoHZqQ9OkTvOClxULEkOedkY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

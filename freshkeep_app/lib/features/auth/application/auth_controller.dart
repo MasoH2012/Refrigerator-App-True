@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../domain/models/food_item.dart';
+import '../../../domain/models/user_profile.dart';
 
 final authProvider = AsyncNotifierProvider<AuthController, AuthSession>(
   AuthController.new,
@@ -44,6 +45,7 @@ class AuthController extends AsyncNotifier<AuthSession> {
       if (error is UsernameAlreadyExistsException) {
         return 'That username already exists. Sign in or choose another.';
       }
+      if (error is AuthRepositoryException) return error.message;
       return 'We could not create your profile. Please try again.';
     }
   }
@@ -54,10 +56,22 @@ class AuthController extends AsyncNotifier<AuthSession> {
   }) async {
     final previous = state.value;
     state = const AsyncLoading();
-    final profile = await _authRepository.signIn(
-      username: username,
-      password: password,
-    );
+    UserProfile? profile;
+    try {
+      profile = await _authRepository.signIn(
+        username: username,
+        password: password,
+      );
+    } on AuthRepositoryException catch (error) {
+      state = AsyncData(
+        AuthSession(
+          profile: null,
+          isAuthenticated: false,
+          hasProfiles: previous?.hasProfiles ?? true,
+        ),
+      );
+      return error.message;
+    }
     if (profile == null) {
       state = AsyncData(
         AuthSession(

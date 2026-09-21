@@ -8,8 +8,13 @@ import 'preferences_inventory_repository.dart';
 import 'user_preferences_repository.dart';
 import 'shopping_list_repository.dart';
 import 'household_repository.dart';
+import 'firebase_auth_repository.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  if (Firebase.apps.isNotEmpty) {
+    return FirebaseAuthRepository();
+  }
   return LocalAuthRepository(ref.watch(sharedPreferencesProvider));
 });
 

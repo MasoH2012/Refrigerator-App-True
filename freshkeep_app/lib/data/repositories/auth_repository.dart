@@ -16,6 +16,15 @@ class UsernameAlreadyExistsException implements Exception {
   const UsernameAlreadyExistsException();
 }
 
+class AuthRepositoryException implements Exception {
+  const AuthRepositoryException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class AuthRepository {
   Future<AuthSession> restoreSession();
 
