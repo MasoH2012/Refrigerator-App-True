@@ -25,6 +25,7 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
   var _zone = FridgeZone.highHumidity;
   var _storageLocation = StorageLocation.fridge;
   var _expirationDate = DateTime.now().add(const Duration(days: 5));
+  var _expirationIsEstimated = false;
   var _saving = false;
 
   @override
@@ -38,6 +39,7 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
     _zone = item.zone;
     _storageLocation = item.storageLocation;
     _expirationDate = item.expirationDate;
+    _expirationIsEstimated = false;
   }
 
   @override
@@ -113,6 +115,14 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
                   trailing: const Icon(Icons.calendar_month_outlined),
                   onTap: _pickDate,
                 ),
+                if (_expirationIsEstimated)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Expiration was estimated from the food type. Update it with the package date when available.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<StorageLocation>(
                   initialValue: _storageLocation,
@@ -177,7 +187,12 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 3650)),
     );
-    if (picked != null) setState(() => _expirationDate = picked);
+    if (picked != null) {
+      setState(() {
+        _expirationDate = picked;
+        _expirationIsEstimated = false;
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -249,13 +264,28 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
       final product = payload['product'] as Map<String, dynamic>?;
       final name = product?['product_name'] as String?;
       if (name == null || name.trim().isEmpty) throw const FormatException();
+      final category = _categoryFromBarcode(product);
+      final scannedExpiration = _expirationDateFromBarcode(product);
+      final expirationWasEstimated = scannedExpiration == null;
       setState(() {
         _name.text = name.trim();
-        _category = _categoryFromBarcode(product);
+        _category = category;
+        _quantity.text = _quantityFromBarcode(product);
+        _storageLocation = _storageLocationFromCategory(category);
+        _zone = _zoneFromCategory(category);
+        _expirationDate = scannedExpiration ??
+            DateTime.now().add(_estimatedShelfLife(category));
+        _expirationIsEstimated = expirationWasEstimated;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Food details filled from barcode.')),
+          SnackBar(
+            content: Text(
+              expirationWasEstimated
+                  ? 'Food details, quantity, storage location, and estimated expiration filled from barcode.'
+                  : 'Food details, quantity, storage location, and expiration filled from barcode.',
+            ),
+          ),
         );
       }
     } on Object {
@@ -287,6 +317,89 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
       return FoodCategory.produce;
     }
     return FoodCategory.pantry;
+  }
+
+  String _quantityFromBarcode(Map<String, dynamic>? product) {
+    final quantity = product?['quantity'];
+    if (quantity is String && quantity.trim().isNotEmpty) {
+      return quantity.trim();
+    }
+
+    final amount = product?['product_quantity'];
+    if (amount != null && amount.toString().trim().isNotEmpty) {
+      final unit = product?['product_quantity_unit']?.toString().trim() ?? '';
+      return unit.isEmpty
+          ? amount.toString().trim()
+          : '${amount.toString().trim()} $unit';
+    }
+    return '1 item';
+  }
+
+  StorageLocation _storageLocationFromCategory(FoodCategory category) =>
+      category == FoodCategory.pantry
+          ? StorageLocation.outOfFridge
+          : StorageLocation.fridge;
+
+  FridgeZone _zoneFromCategory(FoodCategory category) => switch (category) {
+        FoodCategory.produce => FridgeZone.highHumidity,
+        FoodCategory.protein => FridgeZone.lowerShelf,
+        FoodCategory.dairy => FridgeZone.middleShelf,
+        FoodCategory.beverage => FridgeZone.door,
+        FoodCategory.leftovers => FridgeZone.topShelf,
+        FoodCategory.pantry => FridgeZone.lowHumidity,
+      };
+
+  Duration _estimatedShelfLife(FoodCategory category) => switch (category) {
+        FoodCategory.produce => const Duration(days: 5),
+        FoodCategory.dairy => const Duration(days: 7),
+        FoodCategory.protein => const Duration(days: 3),
+        FoodCategory.beverage => const Duration(days: 14),
+        FoodCategory.leftovers => const Duration(days: 4),
+        FoodCategory.pantry => const Duration(days: 90),
+      };
+
+  DateTime? _expirationDateFromBarcode(Map<String, dynamic>? product) {
+    for (final key in const [
+      'expiration_date',
+      'best_before_date',
+      'best_before',
+    ]) {
+      final parsed = _parseBarcodeDate(product?[key]);
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
+  DateTime? _parseBarcodeDate(Object? rawValue) {
+    if (rawValue == null) return null;
+    final value = rawValue.toString().trim();
+    if (value.isEmpty) return null;
+
+    final direct = DateTime.tryParse(value);
+    if (direct != null) {
+      return DateTime(direct.year, direct.month, direct.day);
+    }
+
+    final yearFirst =
+        RegExp(r'^(\d{4})[-./]?(\d{2})[-./]?(\d{2})$').firstMatch(value);
+    if (yearFirst != null) {
+      return DateTime(
+        int.parse(yearFirst.group(1)!),
+        int.parse(yearFirst.group(2)!),
+        int.parse(yearFirst.group(3)!),
+      );
+    }
+
+    final dayFirst =
+        RegExp(r'^(\d{2})[-./](\d{2})[-./](\d{4})$').firstMatch(value);
+    if (dayFirst != null) {
+      return DateTime(
+        int.parse(dayFirst.group(3)!),
+        int.parse(dayFirst.group(2)!),
+        int.parse(dayFirst.group(1)!),
+      );
+    }
+    return null;
   }
 }
 

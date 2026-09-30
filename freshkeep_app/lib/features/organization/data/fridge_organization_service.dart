@@ -62,7 +62,9 @@ class FridgeOrganizationService {
                 .toList(),
           }),
         )
-        .timeout(const Duration(seconds: 25));
+        // Organization plans use the same AI service as recipes and may
+        // include web-backed reasoning, so allow the longer server window.
+        .timeout(const Duration(seconds: 90));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FridgeOrganizationException(
         'Organization service returned ${response.statusCode}.',

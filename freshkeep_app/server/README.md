@@ -11,11 +11,19 @@ dependencies.
 
 ## Local development
 
-```powershell
-$env:OPENAI_API_KEY='your-server-side-key'
-$env:OPENAI_MODEL='gpt-5'
-node server/recipe_suggestions_server.mjs
+```bat
+cd /d "C:\Dev\freshkeep_app"
+set "OPENAI_API_KEY=your-server-side-key"
+set "OPENAI_MODEL=gpt-5"
+set "FRESHKEEP_ENABLE_WEB_SEARCH=false"
+set "FRESHKEEP_AI_TIMEOUT_MS=90000"
+node server\recipe_suggestions_server.mjs
 ```
+
+Fast mode creates original recipes directly from the supplied inventory. Set
+`FRESHKEEP_ENABLE_WEB_SEARCH=true` when you explicitly want source recipes from
+the web; web search is slower. If your OpenAI project supports a faster model,
+you can also set `OPENAI_MODEL` to that model.
 
 In a debug build, FreshKeep automatically connects to
 `http://10.0.2.2:8787/recipe-suggestions` on the Android emulator and

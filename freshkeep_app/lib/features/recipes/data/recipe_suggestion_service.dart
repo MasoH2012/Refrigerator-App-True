@@ -122,7 +122,9 @@ class HybridRecipeSuggestionService implements RecipeSuggestionService {
             'requestNonce': _now().microsecondsSinceEpoch,
           }),
         )
-        .timeout(const Duration(seconds: 25));
+        // Recipe generation can include web search and structured output,
+        // which can take longer than a normal API request.
+        .timeout(const Duration(seconds: 90));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw RecipeSuggestionException(

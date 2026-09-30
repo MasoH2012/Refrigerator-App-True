@@ -40,7 +40,7 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     );
   }
 
-  Future<String?> create(String name) async {
+  Future<String?> create(String name, String password) async {
     final username = ref.read(authProvider).value?.profile?.username;
     if (username == null) return 'Sign in before creating a household.';
     try {
@@ -48,6 +48,7 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
       final household = await ref.read(householdRepositoryProvider).create(
             username: username,
             name: name,
+            password: password,
           );
       // Move the pre-household personal data into the first shared household.
       if (previousDataOwner == username) {
@@ -73,13 +74,14 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     }
   }
 
-  Future<String?> join(String code) async {
+  Future<String?> join(String code, String password) async {
     final username = ref.read(authProvider).value?.profile?.username;
     if (username == null) return 'Sign in before joining a household.';
     try {
       await ref.read(householdRepositoryProvider).join(
             username: username,
             inviteCode: code,
+            password: password,
           );
       await _refresh();
       return null;

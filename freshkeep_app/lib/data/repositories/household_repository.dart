@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -35,16 +36,23 @@ class HouseholdRepository {
   Future<Household> create({
     required String username,
     required String name,
+    required String password,
   }) async {
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
       throw const HouseholdException('Enter a household name.');
+    }
+    final trimmedPassword = password.trim();
+    if (trimmedPassword.length < 4) {
+      throw const HouseholdException(
+          'Choose a household password with at least 4 characters.');
     }
     final households = _readAll();
     final household = Household(
       id: const Uuid().v4(),
       name: trimmedName,
       inviteCode: _newInviteCode(households),
+      passwordHash: _hashPassword(trimmedPassword),
       ownerUsername: username.trim(),
       members: [username.trim()],
       createdAt: DateTime.now(),
@@ -57,6 +65,7 @@ class HouseholdRepository {
   Future<Household> join({
     required String username,
     required String inviteCode,
+    required String password,
   }) async {
     final code = inviteCode.trim().toUpperCase();
     final households = _readAll();
@@ -66,6 +75,10 @@ class HouseholdRepository {
       throw const HouseholdException('That invite code was not found.');
     }
     final household = households[index];
+    if (household.passwordHash.isNotEmpty &&
+        household.passwordHash != _hashPassword(password.trim())) {
+      throw const HouseholdException('That household password is incorrect.');
+    }
     final alreadyMember = household.members.any(
       (member) => _normalize(member) == _normalize(username),
     );
@@ -156,6 +169,9 @@ class HouseholdRepository {
       'household.active.v1.${_normalize(username)}';
 
   String _normalize(String username) => username.trim().toLowerCase();
+
+  String _hashPassword(String password) =>
+      sha256.convert(utf8.encode(password)).toString();
 }
 
 class HouseholdException implements Exception {

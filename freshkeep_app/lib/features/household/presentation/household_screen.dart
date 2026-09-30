@@ -41,6 +41,7 @@ class HouseholdScreen extends ConsumerWidget {
                         .read(householdProvider.notifier)
                         .switchTo(household.id),
                     onCopyCode: () => _copyInviteCode(context, household),
+                    onCopyLink: () => _copyInviteLink(context, household),
                     onRename: () => _renameHousehold(context, ref, household),
                     onLeave: () => _leaveHousehold(context, ref, household),
                   )),
@@ -60,9 +61,9 @@ class HouseholdScreen extends ConsumerWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: const ListTile(
                 leading: Icon(Icons.lock_outline),
-                title: Text('Private on this device'),
+                title: Text('Private household sharing'),
                 subtitle: Text(
-                    'Invite codes work between profiles using this FreshKeep installation. Cloud syncing between devices can be connected when an account backend is added.'),
+                    'Share the invite code or link with someone you trust. They will also need the household password. Household data is currently stored on this device.'),
               ),
             ),
           ],
@@ -72,57 +73,100 @@ class HouseholdScreen extends ConsumerWidget {
   }
 
   Future<void> _createHousehold(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController(text: 'Our kitchen');
-    final name = await showDialog<String>(
+    final nameController = TextEditingController(text: 'Our kitchen');
+    final passwordController = TextEditingController();
+    final credentials = await showDialog<_HouseholdCredentials>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Create household'),
-        content: TextField(
-            controller: controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(labelText: 'Household name')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: nameController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Household name')),
+            const SizedBox(height: 12),
+            TextField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                    labelText: 'Household password',
+                    helperText: 'Use at least 4 characters')),
+          ],
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
+              onPressed: () {
+                final name = nameController.text.trim();
+                final password = passwordController.text.trim();
+                if (name.isEmpty || password.length < 4) return;
+                Navigator.pop(context,
+                    _HouseholdCredentials(name: name, password: password));
+              },
               child: const Text('Create')),
         ],
       ),
     );
-    controller.dispose();
-    if (name == null || !context.mounted) return;
-    final error = await ref.read(householdProvider.notifier).create(name);
+    nameController.dispose();
+    passwordController.dispose();
+    if (credentials == null || !context.mounted) return;
+    final error = await ref
+        .read(householdProvider.notifier)
+        .create(credentials.name, credentials.password);
     if (error != null && context.mounted) _showError(context, error);
   }
 
   Future<void> _joinHousehold(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    final code = await showDialog<String>(
+    final codeController = TextEditingController();
+    final passwordController = TextEditingController();
+    final credentials = await showDialog<_HouseholdJoinCredentials>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Join a household'),
-        content: TextField(
-            controller: controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-                labelText: 'Invite code', hintText: 'Example: FRESH7')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: codeController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                    labelText: 'Invite code', hintText: 'Example: FRESH7')),
+            const SizedBox(height: 12),
+            TextField(
+                controller: passwordController,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'Household password')),
+          ],
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
+              onPressed: () {
+                final code = codeController.text.trim();
+                final password = passwordController.text.trim();
+                if (code.isEmpty || password.length < 4) return;
+                Navigator.pop(context,
+                    _HouseholdJoinCredentials(code: code, password: password));
+              },
               child: const Text('Join')),
         ],
       ),
     );
-    controller.dispose();
-    if (code == null || !context.mounted) return;
-    final error = await ref.read(householdProvider.notifier).join(code);
+    codeController.dispose();
+    passwordController.dispose();
+    if (credentials == null || !context.mounted) return;
+    final error = await ref
+        .read(householdProvider.notifier)
+        .join(credentials.code, credentials.password);
     if (error != null && context.mounted) _showError(context, error);
   }
 
@@ -181,6 +225,12 @@ class HouseholdScreen extends ConsumerWidget {
         .showSnackBar(const SnackBar(content: Text('Invite code copied.')));
   }
 
+  void _copyInviteLink(BuildContext context, Household household) {
+    Clipboard.setData(ClipboardData(text: household.inviteLink));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Invite link copied.')));
+  }
+
   void _showError(BuildContext context, String error) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
@@ -228,6 +278,7 @@ class _HouseholdCard extends StatelessWidget {
       required this.username,
       required this.onSelect,
       required this.onCopyCode,
+      required this.onCopyLink,
       required this.onRename,
       required this.onLeave});
   final Household household;
@@ -235,6 +286,7 @@ class _HouseholdCard extends StatelessWidget {
   final String username;
   final VoidCallback onSelect;
   final VoidCallback onCopyCode;
+  final VoidCallback onCopyLink;
   final VoidCallback onRename;
   final VoidCallback onLeave;
 
@@ -269,8 +321,18 @@ class _HouseholdCard extends StatelessWidget {
               TextButton.icon(
                   onPressed: onCopyCode,
                   icon: const Icon(Icons.copy, size: 18),
-                  label: const Text('Copy')),
+                  label: const Text('Code')),
             ]),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 12, bottom: 4),
+              child: TextButton.icon(
+                  onPressed: onCopyLink,
+                  icon: const Icon(Icons.link, size: 18),
+                  label: const Text('Copy invite link')),
+            ),
           ),
           Align(
             alignment: Alignment.centerRight,
@@ -292,4 +354,18 @@ class _HouseholdCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HouseholdCredentials {
+  const _HouseholdCredentials({required this.name, required this.password});
+
+  final String name;
+  final String password;
+}
+
+class _HouseholdJoinCredentials {
+  const _HouseholdJoinCredentials({required this.code, required this.password});
+
+  final String code;
+  final String password;
 }

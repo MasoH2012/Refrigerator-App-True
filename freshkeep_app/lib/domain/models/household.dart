@@ -3,6 +3,7 @@ class Household {
     required this.id,
     required this.name,
     required this.inviteCode,
+    this.passwordHash = '',
     required this.ownerUsername,
     required this.members,
     required this.createdAt,
@@ -11,18 +12,25 @@ class Household {
   final String id;
   final String name;
   final String inviteCode;
+  final String passwordHash;
   final String ownerUsername;
   final List<String> members;
   final DateTime createdAt;
 
+  /// A deep link that can be shared with another FreshKeep profile.
+  /// The password is intentionally never embedded in this link.
+  String get inviteLink => 'freshkeep://household/join?code=$inviteCode';
+
   Household copyWith({
     String? name,
     List<String>? members,
+    String? passwordHash,
   }) =>
       Household(
         id: id,
         name: name ?? this.name,
         inviteCode: inviteCode,
+        passwordHash: passwordHash ?? this.passwordHash,
         ownerUsername: ownerUsername,
         members: members ?? this.members,
         createdAt: createdAt,
@@ -32,6 +40,7 @@ class Household {
         'id': id,
         'name': name,
         'inviteCode': inviteCode,
+        'passwordHash': passwordHash,
         'ownerUsername': ownerUsername,
         'members': members,
         'createdAt': createdAt.toIso8601String(),
@@ -41,6 +50,7 @@ class Household {
         id: json['id']! as String,
         name: json['name']! as String,
         inviteCode: json['inviteCode']! as String,
+        passwordHash: json['passwordHash'] as String? ?? '',
         ownerUsername: json['ownerUsername']! as String,
         members: (json['members'] as List<dynamic>? ?? const [])
             .whereType<String>()

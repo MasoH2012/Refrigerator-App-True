@@ -4,7 +4,15 @@ const port = Number.parseInt(process.env.PORT ?? '8787', 10);
 const model = process.env.OPENAI_MODEL ?? 'gpt-5';
 const allowedOrigin = process.env.ALLOWED_ORIGIN ?? '*';
 const apiKey = process.env.OPENAI_API_KEY;
+const aiTimeoutMs = Number.parseInt(
+  process.env.FRESHKEEP_AI_TIMEOUT_MS ?? '90000',
+  10,
+);
+const enableWebSearch = /^(1|true|yes)$/i.test(
+  process.env.FRESHKEEP_ENABLE_WEB_SEARCH ?? 'false',
+);
 const rateWindows = new Map();
+const organizationCache = new Map();
 
 const recipeSchema = {
   type: 'object',
@@ -98,12 +106,12 @@ const organizationSchema = {
 };
 
 const instructions = `
-You are the recipe planner for FreshKeep. Return 6 to 8 varied, practical recipes.
+You are the recipe planner for FreshKeep. Return 4 varied, practical recipes.
 
 Priorities, in order:
 1. Obey avoided ingredients, vegetarian, fridge-only, time, must-use, and servings constraints.
 2. Use safe, non-expired fridge ingredients, especially items expiring in 0 to 3 days.
-3. Search the web for established recipes when useful, or create an original recipe when no strong online match exists.
+3. ${enableWebSearch ? 'Search the web for established recipes when useful, or create an original recipe when no strong online match exists.' : 'Create original recipes directly from the supplied inventory. Do not search the web.'}
 4. Minimize shopping ingredients, vary cuisines and meal types, and keep steps concise for a home cook.
 
 Rules:
@@ -115,8 +123,8 @@ Rules:
 - Never include an avoided ingredient, including an obvious derivative.
 - Mark vegetarian recipes with the tag "vegetarian".
 - Calories are estimates per serving. Do not make medical or allergy-safety claims.
-- For a web-discovered recipe, rewrite and adapt the instructions rather than copying prose, use origin "adapted", and provide the exact source URL returned by web search.
-- For an original recipe, use origin "aiGenerated" and an empty sourceUrl.
+- ${enableWebSearch ? 'For a web-discovered recipe, rewrite and adapt the instructions rather than copying prose, use origin "adapted", and provide the exact source URL returned by web search.' : 'Use origin "aiGenerated" and an empty sourceUrl for every recipe.'}
+- ${enableWebSearch ? 'For an original recipe, use origin "aiGenerated" and an empty sourceUrl.' : ''}
 - Do not repeat the same recipe idea within a response. Use the request nonce to produce a fresh set on refresh.
 `;
 
@@ -162,31 +170,38 @@ const server = createServer(async (request, response) => {
   try {
     const payload = await readJson(request);
     const validatedInput = validateInput(payload);
+    const requestBody = {
+      model,
+      store: false,
+      instructions,
+      input: JSON.stringify(validatedInput),
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'freshkeep_recipe_suggestions',
+          strict: true,
+          schema: recipeSchema,
+        },
+      },
+    };
+    if (enableWebSearch) {
+      Object.assign(requestBody, {
+        tools: [{ type: 'web_search', search_context_size: 'low' }],
+        tool_choice: 'auto',
+        max_tool_calls: 2,
+        include: ['web_search_call.action.sources'],
+      });
+    }
     const openAIResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        store: false,
-        instructions,
-        input: JSON.stringify(validatedInput),
-        tools: [{ type: 'web_search', search_context_size: 'low' }],
-        tool_choice: 'auto',
-        max_tool_calls: 2,
-        include: ['web_search_call.action.sources'],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'freshkeep_recipe_suggestions',
-            strict: true,
-            schema: recipeSchema,
-          },
-        },
-      }),
-      signal: AbortSignal.timeout(25_000),
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(
+        Number.isFinite(aiTimeoutMs) && aiTimeoutMs > 0 ? aiTimeoutMs : 90_000,
+      ),
     });
 
     const result = await openAIResponse.json();
@@ -197,7 +212,7 @@ const server = createServer(async (request, response) => {
 
     const outputText = extractOutputText(result);
     const generated = JSON.parse(outputText);
-    const webSources = collectWebSources(result);
+    const webSources = enableWebSearch ? collectWebSources(result) : [];
     const recipes = validateRecipes(
       generated.recipes,
       validatedInput,
@@ -253,6 +268,12 @@ async function handleFridgeOrganization(request, response) {
   }
   try {
     const input = validateOrganizationInput(await readJson(request));
+    const cacheKey = JSON.stringify(input);
+    const cached = organizationCache.get(cacheKey);
+    if (cached) {
+      sendJson(response, 200, cached);
+      return;
+    }
     const openAIResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -273,7 +294,9 @@ async function handleFridgeOrganization(request, response) {
           },
         },
       }),
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(
+        Number.isFinite(aiTimeoutMs) && aiTimeoutMs > 0 ? aiTimeoutMs : 90_000,
+      ),
     });
     const result = await openAIResponse.json();
     if (!openAIResponse.ok) {
@@ -281,11 +304,16 @@ async function handleFridgeOrganization(request, response) {
     }
     const generated = JSON.parse(extractOutputText(result));
     const assignments = validateOrganizationAssignments(generated, input);
-    sendJson(response, 200, {
+    const responsePayload = {
       summary: String(generated.summary ?? 'Organization plan created.').slice(0, 320),
       assignments,
       generatedAt: new Date().toISOString(),
-    });
+    };
+    organizationCache.set(cacheKey, responsePayload);
+    if (organizationCache.size > 20) {
+      organizationCache.delete(organizationCache.keys().next().value);
+    }
+    sendJson(response, 200, responsePayload);
   } catch (error) {
     const status = error instanceof RequestError ? error.status : 502;
     if (status >= 500) {
