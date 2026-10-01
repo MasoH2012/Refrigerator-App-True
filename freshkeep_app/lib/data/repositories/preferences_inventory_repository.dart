@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/food_item.dart';
+import '../../domain/models/data_scope.dart';
 import 'inventory_repository.dart';
 
 class PreferencesInventoryRepository implements InventoryRepository {
@@ -12,11 +13,12 @@ class PreferencesInventoryRepository implements InventoryRepository {
   final SharedPreferences _preferences;
 
   @override
-  Future<List<FoodItem>> loadItems(String ownerId) async {
-    final key = _keyFor(ownerId);
+  Future<List<FoodItem>> loadItems(DataScope scope) async {
+    final key = _keyFor(scope);
     var encoded = _preferences.getString(key);
-    if (encoded == null) {
+    if (encoded == null && scope.legacyOwnerId != null) {
       encoded = _preferences.getString(_legacyKey);
+      encoded ??= _preferences.getString(_keyForLegacy(scope.legacyOwnerId!));
       if (encoded != null) await _preferences.setString(key, encoded);
     }
     if (encoded == null) return const [];
@@ -27,12 +29,15 @@ class PreferencesInventoryRepository implements InventoryRepository {
   }
 
   @override
-  Future<void> saveItems(String ownerId, List<FoodItem> items) =>
+  Future<void> saveItems(DataScope scope, List<FoodItem> items) =>
       _preferences.setString(
-        _keyFor(ownerId),
+        _keyFor(scope),
         jsonEncode(items.map((item) => item.toJson()).toList()),
       );
 
-  String _keyFor(String ownerId) =>
+  String _keyFor(DataScope scope) =>
+      'inventory.v2.${(scope.householdId ?? scope.uid).trim().toLowerCase()}';
+
+  String _keyForLegacy(String ownerId) =>
       'inventory.v2.${ownerId.trim().toLowerCase()}';
 }

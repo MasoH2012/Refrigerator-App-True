@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../data/repositories/household_repository.dart';
 import '../../../domain/models/household.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
 import '../../shopping/application/shopping_list_controller.dart';
@@ -11,28 +12,36 @@ final householdProvider =
   HouseholdController.new,
 );
 
-final householdDataOwnerProvider = Provider<String?>((ref) {
+final householdDataOwnerProvider = Provider<DataScope?>((ref) {
   final profile = ref.watch(authProvider).value?.profile;
   if (profile == null) return null;
   final household = ref.watch(householdProvider).value?.active;
-  return household?.id ?? profile.username;
+  final uid = userIdForProfile(profile);
+  if (household == null) return privateScopeForProfile(profile);
+  return DataScope.household(
+    uid: uid,
+    householdId: household.id,
+    legacyOwnerId: profile.username,
+  );
 });
 
 class HouseholdController extends AsyncNotifier<HouseholdState> {
   @override
   Future<HouseholdState> build() async {
-    final username = ref.watch(authProvider).value?.profile?.username;
-    if (username == null) {
+    final profile = ref.watch(authProvider).value?.profile;
+    if (profile == null) {
       return const HouseholdState(households: [], activeHouseholdId: null);
     }
+    final uid = userIdForProfile(profile);
     final repository = ref.read(householdRepositoryProvider);
-    final households = repository.loadForUser(username);
-    final storedActive = repository.loadActiveId(username);
+    final households =
+        await repository.loadForUser(uid: uid, username: profile.username);
+    final storedActive = await repository.loadActiveId(uid);
     final activeId = households.any((household) => household.id == storedActive)
         ? storedActive
         : null;
     if (activeId == null && storedActive != null) {
-      await repository.setActiveId(username, null);
+      await repository.setActiveId(uid, null);
     }
     return HouseholdState(
       households: households,
@@ -41,45 +50,62 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
   }
 
   Future<String?> create(String name, String password) async {
-    final username = ref.read(authProvider).value?.profile?.username;
-    if (username == null) return 'Sign in before creating a household.';
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before creating a household.';
+    final uid = userIdForProfile(profile);
     try {
       final previousDataOwner = ref.read(householdDataOwnerProvider);
       final household = await ref.read(householdRepositoryProvider).create(
-            username: username,
+            uid: uid,
+            username: profile.username,
             name: name,
             password: password,
           );
       // Move the pre-household personal data into the first shared household.
-      if (previousDataOwner == username) {
-        final inventory =
-            await ref.read(inventoryRepositoryProvider).loadItems(username);
+      if (previousDataOwner != null && !previousDataOwner.isHousehold) {
+        final inventory = await ref
+            .read(inventoryRepositoryProvider)
+            .loadItems(previousDataOwner);
         if (inventory.isNotEmpty) {
-          await ref
-              .read(inventoryRepositoryProvider)
-              .saveItems(household.id, inventory);
+          await ref.read(inventoryRepositoryProvider).saveItems(
+                DataScope.household(
+                  uid: uid,
+                  householdId: household.id,
+                  legacyOwnerId: profile.username,
+                ),
+                inventory,
+              );
         }
-        final shopping =
-            await ref.read(shoppingListRepositoryProvider).load(username);
+        final shopping = await ref
+            .read(shoppingListRepositoryProvider)
+            .load(previousDataOwner);
         if (shopping.isNotEmpty) {
-          await ref
-              .read(shoppingListRepositoryProvider)
-              .save(household.id, shopping);
+          await ref.read(shoppingListRepositoryProvider).save(
+                DataScope.household(
+                  uid: uid,
+                  householdId: household.id,
+                  legacyOwnerId: profile.username,
+                ),
+                shopping,
+              );
         }
       }
       await _refresh();
       return null;
     } on HouseholdException catch (error) {
       return error.message;
+    } on Object catch (error) {
+      return 'Could not create household: $error';
     }
   }
 
   Future<String?> join(String code, String password) async {
-    final username = ref.read(authProvider).value?.profile?.username;
-    if (username == null) return 'Sign in before joining a household.';
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before joining a household.';
     try {
       await ref.read(householdRepositoryProvider).join(
-            username: username,
+            uid: userIdForProfile(profile),
+            username: profile.username,
             inviteCode: code,
             password: password,
           );
@@ -87,28 +113,30 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
       return null;
     } on HouseholdException catch (error) {
       return error.message;
+    } on Object catch (error) {
+      return 'Could not join household: $error';
     }
   }
 
   Future<String?> switchTo(String householdId) async {
-    final username = ref.read(authProvider).value?.profile?.username;
-    if (username == null) return 'Sign in before switching households.';
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before switching households.';
+    final uid = userIdForProfile(profile);
     final exists =
         state.value?.households.any((item) => item.id == householdId) ?? false;
     if (!exists) return 'That household is no longer available.';
-    await ref
-        .read(householdRepositoryProvider)
-        .setActiveId(username, householdId);
+    await ref.read(householdRepositoryProvider).setActiveId(uid, householdId);
     await _refresh();
     return null;
   }
 
   Future<String?> leave(String householdId) async {
-    final username = ref.read(authProvider).value?.profile?.username;
-    if (username == null) return 'Sign in before leaving a household.';
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before leaving a household.';
     try {
       await ref.read(householdRepositoryProvider).leave(
-            username: username,
+            uid: userIdForProfile(profile),
+            username: profile.username,
             householdId: householdId,
           );
       await _refresh();
@@ -119,11 +147,12 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
   }
 
   Future<String?> rename(String householdId, String name) async {
-    final username = ref.read(authProvider).value?.profile?.username;
-    if (username == null) return 'Sign in before renaming a household.';
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before renaming a household.';
     try {
       await ref.read(householdRepositoryProvider).rename(
-            username: username,
+            uid: userIdForProfile(profile),
+            username: profile.username,
             householdId: householdId,
             name: name,
           );

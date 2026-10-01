@@ -13,7 +13,7 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     final service = FreshKeepDataService(
       inventoryRepository: PreferencesInventoryRepository(preferences),
-      preferencesRepository: UserPreferencesRepository(preferences),
+      preferencesRepository: PreferencesUserPreferencesRepository(preferences),
     );
 
     final data = await service.load(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../domain/models/food_item.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../../domain/models/user_profile.dart';
 
 final authProvider = AsyncNotifierProvider<AuthController, AuthSession>(
@@ -30,7 +31,7 @@ class AuthController extends AsyncNotifier<AuthSession> {
       );
       await ref
           .read(inventoryRepositoryProvider)
-          .saveItems(profile.username, initialItems);
+          .saveItems(privateScopeForProfile(profile), initialItems);
       state = AsyncData(
         AuthSession(
           profile: profile,

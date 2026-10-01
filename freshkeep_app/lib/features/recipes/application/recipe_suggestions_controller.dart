@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../domain/models/recipe_filters.dart';
 import '../../../domain/models/app_preferences.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
@@ -60,7 +61,9 @@ class RecipeSuggestionsController
     final profile = ref.watch(authProvider).value?.profile;
     final preferences = profile == null
         ? const AppPreferences()
-        : ref.read(userPreferencesRepositoryProvider).load(profile.username);
+        : await ref
+            .read(userPreferencesRepositoryProvider)
+            .load(privateScopeForProfile(profile));
     final dietaryVegetarian = preferences.dietaryPreference == 'Vegetarian' ||
         preferences.dietaryPreference == 'Vegan';
     final filters = _filters.copyWith(
@@ -83,7 +86,9 @@ class RecipeSuggestionsController
     final profile = ref.read(authProvider).value?.profile;
     final preferences = profile == null
         ? const AppPreferences()
-        : ref.read(userPreferencesRepositoryProvider).load(profile.username);
+        : await ref
+            .read(userPreferencesRepositoryProvider)
+            .load(privateScopeForProfile(profile));
     final dietaryVegetarian = preferences.dietaryPreference == 'Vegetarian' ||
         preferences.dietaryPreference == 'Vegan';
     final filtersToUse = _filters.copyWith(

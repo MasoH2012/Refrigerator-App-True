@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../domain/models/refrigerator_model.dart';
 import '../../../domain/models/app_preferences.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../recipes/application/recipe_suggestions_controller.dart';
@@ -128,7 +129,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ListTile(
                   leading: const Icon(Icons.shield_outlined),
                   title: const Text('Privacy & data'),
-                  subtitle: const Text('Your data is stored on this device'),
+                  subtitle:
+                      const Text('Synced securely with your Firebase account'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _showPrivacyDetails,
                 ),
@@ -307,7 +309,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         icon: const Icon(Icons.shield_outlined),
         title: const Text('Privacy & data'),
         content: const Text(
-          'FreshKeep keeps your profile and refrigerator inventory on this device. Recipe requests use only the ingredients needed to generate suggestions.',
+          'FreshKeep syncs your profile, refrigerator inventory, shopping list, preferences, and household data with your Firebase account. Recipe requests use only the ingredients needed to generate suggestions.',
         ),
         actions: [
           FilledButton(
@@ -324,8 +326,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     _saveSettings();
   }
 
-  void _loadSettings(String username) {
-    final settings = ref.read(userPreferencesRepositoryProvider).load(username);
+  Future<void> _loadSettings(String username) async {
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return;
+    final settings = await ref
+        .read(userPreferencesRepositoryProvider)
+        .load(privateScopeForProfile(profile));
     if (!mounted) return;
     setState(() {
       _notifications = settings.notificationsEnabled;
@@ -347,8 +353,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             .map((value) => value.trim())
             .where((value) => value.isNotEmpty)
             .toList();
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return;
     await ref.read(userPreferencesRepositoryProvider).save(
-          username,
+          privateScopeForProfile(profile),
           AppPreferences(
             notificationsEnabled: _notifications,
             warningDays: _warningDays,

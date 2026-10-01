@@ -63,7 +63,7 @@ class HouseholdScreen extends ConsumerWidget {
                 leading: Icon(Icons.lock_outline),
                 title: Text('Private household sharing'),
                 subtitle: Text(
-                    'Share the invite code or link with someone you trust. They will also need the household password. Household data is currently stored on this device.'),
+                    'Share the invite code or link with someone you trust. They will also need the household password. Household data is synced through Firebase for authorized members.'),
               ),
             ),
           ],
@@ -104,7 +104,14 @@ class HouseholdScreen extends ConsumerWidget {
               onPressed: () {
                 final name = nameController.text.trim();
                 final password = passwordController.text.trim();
-                if (name.isEmpty || password.length < 4) return;
+                if (name.isEmpty || password.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            'Enter a household name and a household password.')),
+                  );
+                  return;
+                }
                 Navigator.pop(context,
                     _HouseholdCredentials(name: name, password: password));
               },
@@ -153,7 +160,14 @@ class HouseholdScreen extends ConsumerWidget {
               onPressed: () {
                 final code = codeController.text.trim();
                 final password = passwordController.text.trim();
-                if (code.isEmpty || password.length < 4) return;
+                if (code.isEmpty || password.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            'Enter the invite code and household password.')),
+                  );
+                  return;
+                }
                 Navigator.pop(context,
                     _HouseholdJoinCredentials(code: code, password: password));
               },

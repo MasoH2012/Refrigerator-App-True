@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../data/repositories/repository_providers.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../../domain/models/shopping_item.dart';
 import '../../household/application/household_controller.dart';
 
@@ -13,14 +14,14 @@ final shoppingListProvider =
 class ShoppingListController extends AsyncNotifier<List<ShoppingItem>> {
   @override
   Future<List<ShoppingItem>> build() async {
-    final owner = ref.watch(householdDataOwnerProvider);
-    if (owner == null) return const [];
-    return ref.read(shoppingListRepositoryProvider).load(owner);
+    final scope = ref.watch(householdDataOwnerProvider);
+    if (scope == null) return const [];
+    return ref.read(shoppingListRepositoryProvider).load(scope);
   }
 
   Future<void> addItem({required String name, String quantity = '1'}) async {
-    final owner = ref.read(householdDataOwnerProvider);
-    if (owner == null || name.trim().isEmpty) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null || name.trim().isEmpty) return;
     final current = state.value ?? const <ShoppingItem>[];
     final existingIndex = current.indexWhere(
       (item) =>
@@ -44,14 +45,14 @@ class ShoppingListController extends AsyncNotifier<List<ShoppingItem>> {
         ),
       );
     }
-    await _save(owner, next);
+    await _save(scope, next);
   }
 
   Future<void> toggle(ShoppingItem item) async {
-    final owner = ref.read(householdDataOwnerProvider);
-    if (owner == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     await _save(
-      owner,
+      scope,
       [
         for (final value in state.value ?? const <ShoppingItem>[])
           value.id == item.id ? item.copyWith(checked: !item.checked) : value,
@@ -60,18 +61,18 @@ class ShoppingListController extends AsyncNotifier<List<ShoppingItem>> {
   }
 
   Future<void> remove(String id) async {
-    final owner = ref.read(householdDataOwnerProvider);
-    if (owner == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     await _save(
-      owner,
+      scope,
       (state.value ?? const <ShoppingItem>[])
           .where((item) => item.id != id)
           .toList(),
     );
   }
 
-  Future<void> _save(String owner, List<ShoppingItem> items) async {
+  Future<void> _save(DataScope scope, List<ShoppingItem> items) async {
     state = AsyncData(items);
-    await ref.read(shoppingListRepositoryProvider).save(owner, items);
+    await ref.read(shoppingListRepositoryProvider).save(scope, items);
   }
 }

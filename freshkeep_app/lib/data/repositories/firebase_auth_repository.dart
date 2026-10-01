@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/user_profile.dart';
 import 'auth_repository.dart';
+import 'local_auth_repository.dart';
 
 /// Firebase-backed authentication while preserving FreshKeep's username UI.
 ///
@@ -18,12 +20,16 @@ class FirebaseAuthRepository implements AuthRepository {
   FirebaseAuthRepository({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
+    SharedPreferences? preferences,
   })  : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+        _firestore = firestore ?? FirebaseFirestore.instance,
+        _legacyAuth =
+            preferences == null ? null : LocalAuthRepository(preferences);
 
   static const _usernameDomain = 'users.freshkeep.app';
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final LocalAuthRepository? _legacyAuth;
 
   @override
   Future<AuthSession> restoreSession() async {
@@ -68,6 +74,7 @@ class FirebaseAuthRepository implements AuthRepository {
         username: trimmedUsername,
         refrigeratorModel: refrigeratorModel.trim(),
         createdAt: DateTime.now(),
+        firebaseUid: user.uid,
       );
       await _firestore.collection('users').doc(user.uid).set({
         ...profile.toJson(),
@@ -97,7 +104,7 @@ class FirebaseAuthRepository implements AuthRepository {
         password: password,
       );
       final user = credential.user;
-      return user == null ? null : _profileForUser(user);
+      return user == null ? null : await _profileForUser(user);
     } on FirebaseAuthException catch (error) {
       if ({
         'invalid-credential',
@@ -143,14 +150,19 @@ class FirebaseAuthRepository implements AuthRepository {
     final snapshot = await _firestore.collection('users').doc(user.uid).get();
     final data = snapshot.data();
     if (data != null && data['username'] is String) {
-      return UserProfile.fromJson(data.cast<String, Object?>());
+      return UserProfile.fromJson(data.cast<String, Object?>()).copyWith(
+        firebaseUid: user.uid,
+      );
     }
-    final fallback = UserProfile(
-      username:
-          user.displayName ?? user.email?.split('@').first ?? 'FreshKeep user',
-      refrigeratorModel: 'ge-gne27jymfs',
-      createdAt: user.metadata.creationTime ?? DateTime.now(),
-    );
+    final fallbackUsername =
+        user.displayName ?? user.email?.split('@').first ?? 'FreshKeep user';
+    final fallback = (_legacyAuth?.loadStoredProfile(fallbackUsername) ??
+            UserProfile(
+              username: fallbackUsername,
+              refrigeratorModel: 'ge-gne27jymfs',
+              createdAt: user.metadata.creationTime ?? DateTime.now(),
+            ))
+        .copyWith(firebaseUid: user.uid);
     await _firestore.collection('users').doc(user.uid).set({
       ...fallback.toJson(),
       'uid': user.uid,

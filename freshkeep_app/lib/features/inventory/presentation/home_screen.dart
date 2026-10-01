@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/app_preferences.dart';
+import '../../../domain/models/data_scope.dart';
+import '../../../domain/models/user_profile.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/inventory_controller.dart';
@@ -21,10 +23,18 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   var _didShowAlert = false;
   var _sortOrder = InventorySortOrder.expirationSoonest;
+  var _settings = const AppPreferences();
+  String? _settingsUsername;
 
   @override
   Widget build(BuildContext context) {
     final inventory = ref.watch(inventoryProvider);
+    final profile = ref.watch(authProvider).value?.profile;
+    if (profile != null && _settingsUsername != profile.username) {
+      _settingsUsername = profile.username;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _loadSettings(profile));
+    }
     return SafeArea(
       child: Scaffold(
         floatingActionButton: FloatingActionButton.extended(
@@ -40,12 +50,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _ErrorState(onRetry: () => ref.invalidate(inventoryProvider)),
             data: (items) {
               final sortedItems = sortFoodItems(items, _sortOrder);
-              final profile = ref.watch(authProvider).value?.profile;
-              final settings = profile == null
-                  ? const AppPreferences()
-                  : ref
-                      .read(userPreferencesRepositoryProvider)
-                      .load(profile.username);
+              final settings = _settings;
               final urgent = items
                   .where(
                     (item) =>
@@ -150,6 +155,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _loadSettings(UserProfile profile) async {
+    final settings = await ref
+        .read(userPreferencesRepositoryProvider)
+        .load(privateScopeForProfile(profile));
+    if (!mounted || _settingsUsername != profile.username) return;
+    setState(() => _settings = settings);
   }
 
   Future<void> _showExpirySheet(

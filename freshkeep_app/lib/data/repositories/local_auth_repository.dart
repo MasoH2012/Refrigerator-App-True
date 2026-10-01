@@ -93,6 +93,26 @@ class LocalAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() async {}
 
+  /// Reads only the locally stored profile fields for one-time Firebase
+  /// migration. Password hashes are never returned by this method.
+  UserProfile? loadStoredProfile(String username) {
+    final stored = _readProfiles()[_normalizeUsername(username)];
+    if (stored != null) return stored;
+    final legacyJson = _preferences.getString(_legacyProfileKey);
+    if (legacyJson == null) return null;
+    try {
+      final legacy = UserProfile.fromJson(
+        (jsonDecode(legacyJson) as Map<String, dynamic>)
+            .cast<String, Object?>(),
+      );
+      return _normalizeUsername(legacy.username) == _normalizeUsername(username)
+          ? legacy
+          : null;
+    } on Object {
+      return null;
+    }
+  }
+
   Map<String, UserProfile> _readProfiles() {
     final encoded = _preferences.getString(_profilesKey);
     if (encoded == null) return {};

@@ -7,33 +7,51 @@ void main() {
   test('creates a household and joins it with an invite code', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
-    final repository = HouseholdRepository(preferences);
+    final repository = PreferencesHouseholdRepository(preferences);
 
-    final created =
-        await repository.create(username: 'Alex', name: 'Alex home');
+    final created = await repository.create(
+      uid: 'uid-alex',
+      username: 'Alex',
+      name: 'Alex home',
+      password: 'secret',
+    );
     expect(created.members, ['Alex']);
     expect(created.inviteCode, hasLength(6));
-    expect(repository.loadActiveId('Alex'), created.id);
+    expect(await repository.loadActiveId('uid-alex'), created.id);
 
     final joined = await repository.join(
       username: 'Sam',
+      uid: 'uid-sam',
       inviteCode: created.inviteCode,
+      password: 'secret',
     );
     expect(joined.id, created.id);
     expect(joined.members, containsAll(<String>['Alex', 'Sam']));
-    expect(repository.loadActiveId('Sam'), created.id);
-    expect(repository.loadForUser('Sam').single.id, created.id);
+    expect(await repository.loadActiveId('uid-sam'), created.id);
+    expect(
+        (await repository.loadForUser(uid: 'uid-sam', username: 'Sam'))
+            .single
+            .id,
+        created.id);
   });
 
   test('prevents the owner from leaving a household', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
-    final repository = HouseholdRepository(preferences);
-    final household =
-        await repository.create(username: 'Alex', name: 'Alex home');
+    final repository = PreferencesHouseholdRepository(preferences);
+    final household = await repository.create(
+      uid: 'uid-alex',
+      username: 'Alex',
+      name: 'Alex home',
+      password: 'secret',
+    );
 
     expect(
-      () => repository.leave(username: 'Alex', householdId: household.id),
+      () => repository.leave(
+        uid: 'uid-alex',
+        username: 'Alex',
+        householdId: household.id,
+      ),
       throwsA(isA<HouseholdException>()),
     );
   });

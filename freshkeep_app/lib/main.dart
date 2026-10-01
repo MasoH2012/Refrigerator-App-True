@@ -10,15 +10,18 @@ import 'core/providers/storage_providers.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // google-services.json configures Android. Flutter Web needs a separate
-  // Firebase Web app/options file, so keep the web preview usable with the
-  // local repository until that configuration is added.
+  // google-services.json configures Android. Flutter Web still has no Firebase
+  // options file in this project, so only the web preview uses local storage.
   if (!kIsWeb) {
     try {
       await Firebase.initializeApp();
     } catch (error, stackTrace) {
-      debugPrint('Firebase initialization failed; using local storage: $error');
       debugPrintStack(stackTrace: stackTrace);
+      runApp(_StartupErrorApp(
+        error:
+            'Firebase could not initialize. Cloud persistence is unavailable.\n\n$error',
+      ));
+      return;
     }
   }
 

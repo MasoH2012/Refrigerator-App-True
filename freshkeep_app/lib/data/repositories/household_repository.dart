@@ -7,13 +7,41 @@ import 'package:uuid/uuid.dart';
 
 import '../../domain/models/household.dart';
 
-class HouseholdRepository {
-  HouseholdRepository(this._preferences);
+abstract interface class HouseholdRepository {
+  Future<List<Household>> loadForUser(
+      {required String uid, required String username});
+  Future<String?> loadActiveId(String uid);
+  Future<void> setActiveId(String uid, String? householdId);
+  Future<Household> create(
+      {required String uid,
+      required String username,
+      required String name,
+      required String password});
+  Future<Household> join(
+      {required String uid,
+      required String username,
+      required String inviteCode,
+      required String password});
+  Future<void> leave(
+      {required String uid,
+      required String username,
+      required String householdId});
+  Future<void> rename(
+      {required String uid,
+      required String username,
+      required String householdId,
+      required String name});
+}
+
+class PreferencesHouseholdRepository implements HouseholdRepository {
+  PreferencesHouseholdRepository(this._preferences);
 
   static const _householdsKey = 'households.v1';
   final SharedPreferences _preferences;
 
-  List<Household> loadForUser(String username) {
+  @override
+  Future<List<Household>> loadForUser(
+      {required String uid, required String username}) async {
     final normalized = _normalize(username);
     return _readAll()
         .where((household) => household.members.any(
@@ -22,18 +50,25 @@ class HouseholdRepository {
         .toList();
   }
 
-  String? loadActiveId(String username) =>
+  @override
+  Future<String?> loadActiveId(String uid) async =>
+      _preferences.getString(_activeKey(uid));
+
+  String? loadLegacyActiveId(String username) =>
       _preferences.getString(_activeKey(username));
 
-  Future<void> setActiveId(String username, String? householdId) async {
+  @override
+  Future<void> setActiveId(String uid, String? householdId) async {
     if (householdId == null) {
-      await _preferences.remove(_activeKey(username));
+      await _preferences.remove(_activeKey(uid));
     } else {
-      await _preferences.setString(_activeKey(username), householdId);
+      await _preferences.setString(_activeKey(uid), householdId);
     }
   }
 
+  @override
   Future<Household> create({
+    required String uid,
     required String username,
     required String name,
     required String password,
@@ -53,21 +88,29 @@ class HouseholdRepository {
       name: trimmedName,
       inviteCode: _newInviteCode(households),
       passwordHash: _hashPassword(trimmedPassword),
+      ownerUid: uid,
       ownerUsername: username.trim(),
       members: [username.trim()],
       createdAt: DateTime.now(),
     );
     await _writeAll([...households, household]);
-    await setActiveId(username, household.id);
+    await setActiveId(uid, household.id);
     return household;
   }
 
+  @override
   Future<Household> join({
+    required String uid,
     required String username,
     required String inviteCode,
     required String password,
   }) async {
     final code = inviteCode.trim().toUpperCase();
+    final trimmedPassword = password.trim();
+    if (trimmedPassword.length < 4) {
+      throw const HouseholdException(
+          'Choose a household password with at least 4 characters.');
+    }
     final households = _readAll();
     final index =
         households.indexWhere((household) => household.inviteCode == code);
@@ -76,7 +119,7 @@ class HouseholdRepository {
     }
     final household = households[index];
     if (household.passwordHash.isNotEmpty &&
-        household.passwordHash != _hashPassword(password.trim())) {
+        household.passwordHash != _hashPassword(trimmedPassword)) {
       throw const HouseholdException('That household password is incorrect.');
     }
     final alreadyMember = household.members.any(
@@ -89,12 +132,15 @@ class HouseholdRepository {
       households[index] = updated;
       await _writeAll(households);
     }
-    await setActiveId(username, updated.id);
+    await setActiveId(uid, updated.id);
     return updated;
   }
 
+  @override
   Future<void> leave(
-      {required String username, required String householdId}) async {
+      {required String uid,
+      required String username,
+      required String householdId}) async {
     final households = _readAll();
     final index =
         households.indexWhere((household) => household.id == householdId);
@@ -110,13 +156,15 @@ class HouseholdRepository {
           .toList(),
     );
     await _writeAll(households);
-    if (loadActiveId(username) == householdId) {
-      await setActiveId(username, null);
+    if (await loadActiveId(uid) == householdId) {
+      await setActiveId(uid, null);
     }
   }
 
+  @override
   Future<void> rename(
-      {required String username,
+      {required String uid,
+      required String username,
       required String householdId,
       required String name}) async {
     final trimmedName = name.trim();

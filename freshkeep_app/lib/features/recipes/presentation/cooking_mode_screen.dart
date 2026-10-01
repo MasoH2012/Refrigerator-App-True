@@ -14,7 +14,8 @@ class CookingModeScreen extends StatefulWidget {
 class _CookingModeScreenState extends State<CookingModeScreen> {
   var _currentStep = 0;
 
-  int get _stepCount => widget.recipe.steps.isEmpty ? 1 : widget.recipe.steps.length;
+  int get _stepCount =>
+      widget.recipe.steps.isEmpty ? 1 : widget.recipe.steps.length;
 
   String get _instruction => widget.recipe.steps.isEmpty
       ? 'This recipe does not include cooking instructions.'
@@ -68,7 +69,10 @@ class _CookingModeScreenState extends State<CookingModeScreen> {
                         padding: const EdgeInsets.all(24),
                         child: Text(
                           _instruction,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 height: 1.35,
                                 color: colorScheme.onPrimaryContainer,
                               ),
@@ -88,7 +92,8 @@ class _CookingModeScreenState extends State<CookingModeScreen> {
                               (ingredient) => ListTile(
                                 dense: true,
                                 leading: Icon(
-                                  ingredient.source == RecipeIngredientSource.shopping
+                                  ingredient.source ==
+                                          RecipeIngredientSource.shopping
                                       ? Icons.add_shopping_cart
                                       : Icons.check_circle_outline,
                                 ),
@@ -119,7 +124,8 @@ class _CookingModeScreenState extends State<CookingModeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
               decoration: BoxDecoration(
                 color: colorScheme.surface,
-                border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
+                border:
+                    Border(top: BorderSide(color: colorScheme.outlineVariant)),
               ),
               child: Row(
                 children: [
@@ -140,7 +146,8 @@ class _CookingModeScreenState extends State<CookingModeScreen> {
                           : isLastStep
                               ? _finishCooking
                               : () => setState(() => _currentStep++),
-                      icon: Icon(isLastStep ? Icons.check : Icons.arrow_forward),
+                      icon:
+                          Icon(isLastStep ? Icons.check : Icons.arrow_forward),
                       label: Text(isLastStep ? 'Finish cooking' : 'Next step'),
                     ),
                   ),

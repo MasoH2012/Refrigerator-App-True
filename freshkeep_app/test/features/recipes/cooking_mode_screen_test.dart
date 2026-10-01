@@ -21,7 +21,8 @@ void main() {
     steps: ['Chop the tomatoes.', 'Cook and serve.'],
   );
 
-  testWidgets('walks through recipe steps and finishes cooking', (tester) async {
+  testWidgets('walks through recipe steps and finishes cooking',
+      (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: CookingModeScreen(recipe: recipe)),
     );

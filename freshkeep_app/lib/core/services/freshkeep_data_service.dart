@@ -9,6 +9,7 @@ import '../../domain/models/fridge_organization.dart';
 import '../../domain/models/recipe.dart';
 import '../../domain/models/refrigerator_model.dart';
 import '../../domain/models/user_profile.dart';
+import '../../domain/models/data_scope.dart';
 import '../../features/auth/application/auth_controller.dart';
 import '../../features/inventory/application/inventory_controller.dart';
 
@@ -65,9 +66,10 @@ class FreshKeepDataService {
     // Simulates a remote/account data request until the cloud data source is
     // connected. Local repositories remain the source of truth for now.
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    final items =
-        foodItems ?? await _inventoryRepository.loadItems(profile.username);
-    final preferences = _preferencesRepository.load(profile.username);
+    final items = foodItems ??
+        await _inventoryRepository.loadItems(privateScopeForProfile(profile));
+    final preferences =
+        await _preferencesRepository.load(privateScopeForProfile(profile));
     final refrigerator = RefrigeratorCatalog.byId(profile.refrigeratorModel);
 
     return FreshKeepData(

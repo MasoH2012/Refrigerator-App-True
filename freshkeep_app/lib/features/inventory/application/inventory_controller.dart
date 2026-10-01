@@ -16,12 +16,12 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
 
   @override
   Future<List<FoodItem>> build() async {
-    final ownerId = ref.watch(householdDataOwnerProvider);
-    if (ownerId == null) return const [];
-    final loaded = await _repository.loadItems(ownerId);
+    final scope = ref.watch(householdDataOwnerProvider);
+    if (scope == null) return const [];
+    final loaded = await _repository.loadItems(scope);
     final merged = _mergeDuplicateItems(loaded);
     if (merged.length != loaded.length) {
-      await _repository.saveItems(ownerId, merged);
+      await _repository.saveItems(scope, merged);
     }
     return _sorted(merged);
   }
@@ -35,8 +35,8 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
     StorageLocation storageLocation = StorageLocation.fridge,
   }) async {
     final current = state.value ?? const <FoodItem>[];
-    final ownerId = ref.read(householdDataOwnerProvider);
-    if (ownerId == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     final next = _sorted(_mergeDuplicateItems([
       ...current,
       FoodItem(
@@ -51,12 +51,12 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
       ),
     ]));
     state = AsyncData(next);
-    await _repository.saveItems(ownerId, next);
+    await _repository.saveItems(scope, next);
   }
 
   Future<void> updateItem(FoodItem updatedItem) async {
-    final ownerId = ref.read(householdDataOwnerProvider);
-    if (ownerId == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     final current = state.value ?? const <FoodItem>[];
     final next = _sorted(
       _mergeDuplicateItems([
@@ -65,23 +65,23 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
       ]),
     );
     state = AsyncData(next);
-    await _repository.saveItems(ownerId, next);
+    await _repository.saveItems(scope, next);
   }
 
   Future<void> removeItem(String id) async {
-    final ownerId = ref.read(householdDataOwnerProvider);
-    if (ownerId == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     final next = (state.value ?? const <FoodItem>[])
         .where((item) => item.id != id)
         .toList();
     state = AsyncData(next);
-    await _repository.saveItems(ownerId, next);
+    await _repository.saveItems(scope, next);
   }
 
   Future<void> removeQuantity(String id, double amount) async {
     if (amount <= 0) return;
-    final ownerId = ref.read(householdDataOwnerProvider);
-    if (ownerId == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     final current = state.value ?? const <FoodItem>[];
     final item = current.where((value) => value.id == id).firstOrNull;
     if (item == null) return;
@@ -110,11 +110,11 @@ class InventoryController extends AsyncNotifier<List<FoodItem>> {
   }
 
   Future<void> replaceItems(List<FoodItem> items) async {
-    final ownerId = ref.read(householdDataOwnerProvider);
-    if (ownerId == null) return;
+    final scope = ref.read(householdDataOwnerProvider);
+    if (scope == null) return;
     final next = _sorted(items);
     state = AsyncData(next);
-    await _repository.saveItems(ownerId, next);
+    await _repository.saveItems(scope, next);
   }
 
   List<FoodItem> _sorted(List<FoodItem> items) =>

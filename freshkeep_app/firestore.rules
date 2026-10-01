@@ -2,9 +2,102 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isMember(householdId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    function isOwner(householdId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/households/$(householdId)).data.ownerUid == request.auth.uid;
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == userId;
+      allow read, update, delete: if isUser(userId);
+      allow create: if isUser(userId);
+
+      match /inventory/{itemId} {
+        allow read, write: if isUser(userId);
+      }
+
+      match /shoppingList/{itemId} {
+        allow read, write: if isUser(userId);
+      }
+
+      match /preferences/{preferenceId} {
+        allow read, write: if isUser(userId);
+      }
+
+      match /savedRecipes/{recipeId} {
+        allow read, write: if isUser(userId);
+      }
+
+      match /householdState/{stateId} {
+        allow read, write: if isUser(userId);
+      }
+
+      // Membership indexes are created alongside the corresponding member
+      // document. getAfter() prevents a user from inventing an index entry.
+      match /households/{householdId} {
+        allow read: if isUser(userId);
+        allow create: if isUser(userId)
+          && getAfter(/databases/$(database)/documents/households/$(householdId)/members/$(userId)).data.uid == userId;
+        allow delete: if isUser(userId);
+      }
+    }
+
+    match /households/{householdId} {
+      allow read: if isMember(householdId);
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid)).data.uid == request.auth.uid;
+      allow update: if isOwner(householdId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.inviteCode == resource.data.inviteCode
+        && request.resource.data.passwordHash == resource.data.passwordHash;
+      allow delete: if isOwner(householdId);
+
+      match /members/{memberUid} {
+        allow read: if isMember(householdId);
+        allow create: if (signedIn()
+            && request.auth.uid == memberUid
+            && getAfter(/databases/$(database)/documents/households/$(householdId)).data.ownerUid == request.auth.uid)
+          || isOwner(householdId)
+          || (signedIn()
+            && request.auth.uid == memberUid
+            && request.resource.data.uid == memberUid
+            && request.resource.data.passwordHash == get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.passwordHash
+            && get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.householdId == householdId);
+        allow delete: if isOwner(householdId) || (signedIn() && request.auth.uid == memberUid);
+        allow update: if isOwner(householdId);
+      }
+
+      match /inventory/{itemId} {
+        allow read, write: if isMember(householdId);
+      }
+
+      match /shoppingList/{itemId} {
+        allow read, write: if isMember(householdId);
+      }
+    }
+
+    // Invite metadata contains only a household ID and a password hash; it
+    // never contains inventory or member data. It is readable only by signed-
+    // in users so the join flow can validate the password before membership.
+    match /householdInvites/{inviteCode} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.ownerUid == request.auth.uid;
+      allow update, delete: if signedIn()
+        && get(/databases/$(database)/documents/households/$(resource.data.householdId)).data.ownerUid == request.auth.uid;
     }
   }
 }
