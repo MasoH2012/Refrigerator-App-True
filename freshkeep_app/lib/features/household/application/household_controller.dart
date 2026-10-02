@@ -54,7 +54,17 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     if (profile == null) return 'Sign in before creating a household.';
     final uid = userIdForProfile(profile);
     try {
-      final previousDataOwner = ref.read(householdDataOwnerProvider);
+      // Do not read householdDataOwnerProvider here: that provider watches
+      // householdProvider, so reading it while this notifier is creating a
+      // household would create a Riverpod circular dependency.
+      final previousHousehold = state.value?.active;
+      final previousDataOwner = previousHousehold == null
+          ? privateScopeForProfile(profile)
+          : DataScope.household(
+              uid: uid,
+              householdId: previousHousehold.id,
+              legacyOwnerId: profile.username,
+            );
       final household = await ref.read(householdRepositoryProvider).create(
             uid: uid,
             username: profile.username,
