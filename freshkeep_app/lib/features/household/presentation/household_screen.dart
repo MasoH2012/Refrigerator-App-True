@@ -73,54 +73,10 @@ class HouseholdScreen extends ConsumerWidget {
   }
 
   Future<void> _createHousehold(BuildContext context, WidgetRef ref) async {
-    final nameController = TextEditingController(text: 'Our kitchen');
-    final passwordController = TextEditingController();
     final credentials = await showDialog<_HouseholdCredentials>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create household'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: nameController,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Household name')),
-            const SizedBox(height: 12),
-            TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                    labelText: 'Household password',
-                    helperText: 'Use at least 4 characters')),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () {
-                final name = nameController.text.trim();
-                final password = passwordController.text.trim();
-                if (name.isEmpty || password.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text(
-                            'Enter a household name and a household password.')),
-                  );
-                  return;
-                }
-                Navigator.pop(context,
-                    _HouseholdCredentials(name: name, password: password));
-              },
-              child: const Text('Create')),
-        ],
-      ),
+      builder: (_) => const _CreateHouseholdDialog(),
     );
-    nameController.dispose();
-    passwordController.dispose();
     if (credentials == null || !context.mounted) return;
     final error = await ref
         .read(householdProvider.notifier)
@@ -129,54 +85,10 @@ class HouseholdScreen extends ConsumerWidget {
   }
 
   Future<void> _joinHousehold(BuildContext context, WidgetRef ref) async {
-    final codeController = TextEditingController();
-    final passwordController = TextEditingController();
     final credentials = await showDialog<_HouseholdJoinCredentials>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Join a household'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: codeController,
-                autofocus: true,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                    labelText: 'Invite code', hintText: 'Example: FRESH7')),
-            const SizedBox(height: 12),
-            TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration:
-                    const InputDecoration(labelText: 'Household password')),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () {
-                final code = codeController.text.trim();
-                final password = passwordController.text.trim();
-                if (code.isEmpty || password.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text(
-                            'Enter the invite code and household password.')),
-                  );
-                  return;
-                }
-                Navigator.pop(context,
-                    _HouseholdJoinCredentials(code: code, password: password));
-              },
-              child: const Text('Join')),
-        ],
-      ),
+      builder: (_) => const _JoinHouseholdDialog(),
     );
-    codeController.dispose();
-    passwordController.dispose();
     if (credentials == null || !context.mounted) return;
     final error = await ref
         .read(householdProvider.notifier)
@@ -186,23 +98,10 @@ class HouseholdScreen extends ConsumerWidget {
 
   Future<void> _renameHousehold(
       BuildContext context, WidgetRef ref, Household household) async {
-    final controller = TextEditingController(text: household.name);
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename household'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Save')),
-        ],
-      ),
+      builder: (_) => _RenameHouseholdDialog(initialName: household.name),
     );
-    controller.dispose();
     if (name == null || !context.mounted) return;
     final error =
         await ref.read(householdProvider.notifier).rename(household.id, name);
@@ -375,6 +274,191 @@ class _HouseholdCredentials {
 
   final String name;
   final String password;
+}
+
+class _CreateHouseholdDialog extends StatefulWidget {
+  const _CreateHouseholdDialog();
+
+  @override
+  State<_CreateHouseholdDialog> createState() => _CreateHouseholdDialogState();
+}
+
+class _CreateHouseholdDialogState extends State<_CreateHouseholdDialog> {
+  final _name = TextEditingController(text: 'Our kitchen');
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Create household'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Household name'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Household password',
+                helperText: 'Use at least 4 characters',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = _name.text.trim();
+              final password = _password.text.trim();
+              if (name.isEmpty || password.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Enter a household name and a household password.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(
+                context,
+                _HouseholdCredentials(name: name, password: password),
+              );
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      );
+}
+
+class _JoinHouseholdDialog extends StatefulWidget {
+  const _JoinHouseholdDialog();
+
+  @override
+  State<_JoinHouseholdDialog> createState() => _JoinHouseholdDialogState();
+}
+
+class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
+  final _code = TextEditingController();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Join a household'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _code,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Invite code',
+                hintText: 'Example: FRESH7',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Household password',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final code = _code.text.trim();
+              final password = _password.text.trim();
+              if (code.isEmpty || password.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Enter the invite code and household password.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(
+                context,
+                _HouseholdJoinCredentials(code: code, password: password),
+              );
+            },
+            child: const Text('Join'),
+          ),
+        ],
+      );
+}
+
+class _RenameHouseholdDialog extends StatefulWidget {
+  const _RenameHouseholdDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_RenameHouseholdDialog> createState() => _RenameHouseholdDialogState();
+}
+
+class _RenameHouseholdDialogState extends State<_RenameHouseholdDialog> {
+  late final TextEditingController _name;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Rename household'),
+        content: TextField(controller: _name, autofocus: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _name.text),
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }
 
 class _HouseholdJoinCredentials {

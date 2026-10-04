@@ -406,26 +406,74 @@ class _FoodCard extends ConsumerWidget {
 
     final available = double.parse(match.group(1)!);
     final unit = match.group(2)!.trim();
-    final controller = TextEditingController(text: '1');
     final amount = await showDialog<double>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove ${item.name}'),
+      builder: (_) => _RemoveQuantityDialog(
+        itemName: item.name,
+        quantity: item.quantity,
+        available: available,
+        unit: unit,
+      ),
+    );
+    if (amount != null) {
+      await ref
+          .read(inventoryProvider.notifier)
+          .removeQuantity(item.id, amount);
+    }
+  }
+}
+
+class _RemoveQuantityDialog extends StatefulWidget {
+  const _RemoveQuantityDialog({
+    required this.itemName,
+    required this.quantity,
+    required this.available,
+    required this.unit,
+  });
+
+  final String itemName;
+  final String quantity;
+  final double available;
+  final String unit;
+
+  @override
+  State<_RemoveQuantityDialog> createState() => _RemoveQuantityDialogState();
+}
+
+class _RemoveQuantityDialogState extends State<_RemoveQuantityDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '1');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('Remove ${widget.itemName}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-                'You have ${item.quantity}. How much would you like to remove?'),
+              'You have ${widget.quantity}. How much would you like to remove?',
+            ),
             const SizedBox(height: 12),
             TextField(
-              controller: controller,
+              controller: _controller,
               autofocus: true,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 labelText: 'Amount to remove',
-                suffixText: unit.isEmpty ? null : unit,
+                suffixText: widget.unit.isEmpty ? null : widget.unit,
               ),
             ),
           ],
@@ -437,11 +485,14 @@ class _FoodCard extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () {
-              final value = double.tryParse(controller.text.trim());
-              if (value == null || value <= 0 || value > available) {
+              final value = double.tryParse(_controller.text.trim());
+              if (value == null || value <= 0 || value > widget.available) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                      content: Text('Enter an amount from 0 to $available.')),
+                    content: Text(
+                      'Enter an amount from 0 to ${widget.available}.',
+                    ),
+                  ),
                 );
                 return;
               }
@@ -450,15 +501,7 @@ class _FoodCard extends ConsumerWidget {
             child: const Text('Remove'),
           ),
         ],
-      ),
-    );
-    controller.dispose();
-    if (amount != null) {
-      await ref
-          .read(inventoryProvider.notifier)
-          .removeQuantity(item.id, amount);
-    }
-  }
+      );
 }
 
 class _FoodImage extends StatelessWidget {

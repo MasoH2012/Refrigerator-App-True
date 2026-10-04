@@ -27,7 +27,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/shopping',
-        builder: (context, state) => const ShoppingListScreen(),
+        // The default route animation can tear down the authenticated shell
+        // while its inherited Material widgets still have dependents. A
+        // no-transition page keeps the shopping route lifecycle atomic.
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: ShoppingListScreen(),
+        ),
       ),
       GoRoute(
         path: '/household',

@@ -64,45 +64,72 @@ class _ShoppingListScreenState extends ConsumerState<ShoppingListScreen> {
   }
 
   Future<void> _addItem() async {
-    final nameController = TextEditingController();
-    final quantityController = TextEditingController(text: '1');
     final result = await showDialog<(String, String)>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => const _AddShoppingItemDialog(),
+    );
+    if (!mounted || result == null) return;
+    await ref.read(shoppingListProvider.notifier).addItem(
+          name: result.$1,
+          quantity: result.$2,
+        );
+  }
+}
+
+class _AddShoppingItemDialog extends StatefulWidget {
+  const _AddShoppingItemDialog();
+
+  @override
+  State<_AddShoppingItemDialog> createState() => _AddShoppingItemDialogState();
+}
+
+class _AddShoppingItemDialogState extends State<_AddShoppingItemDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _quantityController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _quantityController = TextEditingController(text: '1');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
         title: const Text('Add to shopping list'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: nameController,
+              controller: _nameController,
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Item'),
             ),
             TextField(
-              controller: quantityController,
+              controller: _quantityController,
               decoration: const InputDecoration(labelText: 'Quantity'),
             ),
           ],
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(
-                context, (nameController.text, quantityController.text)),
+              context,
+              (_nameController.text, _quantityController.text),
+            ),
             child: const Text('Add'),
           ),
         ],
-      ),
-    );
-    nameController.dispose();
-    quantityController.dispose();
-    if (result != null) {
-      await ref.read(shoppingListProvider.notifier).addItem(
-            name: result.$1,
-            quantity: result.$2,
-          );
-    }
-  }
+      );
 }

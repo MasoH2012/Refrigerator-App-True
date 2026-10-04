@@ -227,31 +227,7 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
   Future<void> _showScanner() async {
     final barcode = await showDialog<String>(
       context: context,
-      builder: (context) {
-        final controller = TextEditingController();
-        return AlertDialog(
-          title: const Text('Scan a barcode'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'UPC or EAN barcode',
-              hintText: 'Example: 012345678905',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('Look up'),
-            ),
-          ],
-        );
-      },
+      builder: (_) => const _BarcodeDialog(),
     );
     if (barcode == null || barcode.isEmpty || !mounted) return;
     try {
@@ -401,6 +377,47 @@ class _AddItemScreenState extends ConsumerState<AddItemScreen> {
     }
     return null;
   }
+}
+
+class _BarcodeDialog extends StatefulWidget {
+  const _BarcodeDialog();
+
+  @override
+  State<_BarcodeDialog> createState() => _BarcodeDialogState();
+}
+
+class _BarcodeDialogState extends State<_BarcodeDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Scan a barcode'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'UPC or EAN barcode',
+            hintText: 'Example: 012345678905',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _controller.text.trim()),
+            child: const Text('Look up'),
+          ),
+        ],
+      );
 }
 
 String _zoneName(FridgeZone zone) => switch (zone) {

@@ -172,44 +172,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _chooseWarningDays() async {
-    final controller = TextEditingController(text: '$_warningDays');
     final selected = await showDialog<int>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Warn me before expiration'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Days before expiration',
-            helperText: 'Enter any whole number from 0 onward.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final days = int.tryParse(controller.text.trim());
-              if (days == null || days < 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Enter a whole number of 0 or more.'),
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(context, days);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (_) => _WarningDaysDialog(initialDays: _warningDays),
     );
-    controller.dispose();
     if (selected != null && mounted) {
       setState(() => _warningDays = selected);
       await _saveSettings();
@@ -236,34 +202,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _editAllergies() async {
-    final controller = TextEditingController(
-      text: _allergies == 'None added' ? '' : _allergies,
-    );
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Allergies & dislikes'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Example: peanuts, shellfish',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (_) => _AllergiesDialog(
+        initialValue: _allergies == 'None added' ? '' : _allergies,
       ),
     );
-    controller.dispose();
     if (value != null && mounted) {
       setState(() => _allergies = value.isEmpty ? 'None added' : value);
       await _saveSettings();
@@ -366,4 +310,112 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         );
     ref.invalidate(recipeSuggestionsProvider);
   }
+}
+
+class _WarningDaysDialog extends StatefulWidget {
+  const _WarningDaysDialog({required this.initialDays});
+
+  final int initialDays;
+
+  @override
+  State<_WarningDaysDialog> createState() => _WarningDaysDialogState();
+}
+
+class _WarningDaysDialogState extends State<_WarningDaysDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.initialDays}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Warn me before expiration'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Days before expiration',
+            helperText: 'Enter any whole number from 0 onward.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final days = int.tryParse(_controller.text.trim());
+              if (days == null || days < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Enter a whole number of 0 or more.'),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context, days);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      );
+}
+
+class _AllergiesDialog extends StatefulWidget {
+  const _AllergiesDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_AllergiesDialog> createState() => _AllergiesDialogState();
+}
+
+class _AllergiesDialogState extends State<_AllergiesDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Allergies & dislikes'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Example: peanuts, shellfish',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }
