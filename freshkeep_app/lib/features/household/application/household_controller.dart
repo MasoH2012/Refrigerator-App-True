@@ -27,7 +27,9 @@ final householdDataOwnerProvider = Provider<DataScope?>((ref) {
 
 class HouseholdController extends AsyncNotifier<HouseholdState> {
   @override
-  Future<HouseholdState> build() async {
+  Future<HouseholdState> build() => _loadState();
+
+  Future<HouseholdState> _loadState() async {
     final profile = ref.watch(authProvider).value?.profile;
     if (profile == null) {
       return const HouseholdState(households: [], activeHouseholdId: null);
@@ -174,8 +176,15 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
   }
 
   Future<void> _refresh() async {
-    ref.invalidate(inventoryProvider);
-    ref.invalidate(shoppingListProvider);
-    state = AsyncData(await build());
+    // Finish this provider's own state transition before invalidating the
+    // dependent inventory and shopping providers. Invalidating them while
+    // this notifier is still refreshing lets inventory -> householdDataOwner
+    // -> household re-enter the current operation and creates a Riverpod
+    // circular dependency.
+    state = AsyncData(await _loadState());
+    Future<void>.microtask(() {
+      ref.invalidate(inventoryProvider);
+      ref.invalidate(shoppingListProvider);
+    });
   }
 }
