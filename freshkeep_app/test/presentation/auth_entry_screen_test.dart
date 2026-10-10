@@ -22,6 +22,7 @@ void main() {
 
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Create a new profile'), findsOneWidget);
+    expect(find.text('Join a household'), findsOneWidget);
 
     await tester.tap(find.text('Create a new profile'));
     await tester.pumpAndSettle();

@@ -193,10 +193,68 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     await _household(householdId).update({'name': trimmedName});
   }
 
+  @override
+  Future<void> changePassword({
+    required String uid,
+    required String username,
+    required String householdId,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final current = currentPassword.trim();
+    final next = newPassword.trim();
+    if (current.length < 4 || next.length < 4) {
+      throw const HouseholdException(
+          'Household passwords must be at least 4 characters.');
+    }
+    final household = await _loadHousehold(householdId);
+    if (household == null) {
+      throw const HouseholdException('Household not found.');
+    }
+    if (household.ownerUid != uid) {
+      throw const HouseholdException(
+          'Only the household owner can change its password.');
+    }
+    if (household.passwordHash != _hashPassword(current)) {
+      throw const HouseholdException(
+          'The current household password is incorrect.');
+    }
+    final nextHash = _hashPassword(next);
+    final batch = _firestore.batch();
+    batch.update(_household(householdId), {'passwordHash': nextHash});
+    batch.update(_invite(household.inviteCode), {'passwordHash': nextHash});
+    await batch.commit();
+  }
+
+  @override
+  Future<void> delete({
+    required String uid,
+    required String username,
+    required String householdId,
+  }) async {
+    final household = await _loadHousehold(householdId);
+    if (household == null) return;
+    if (household.ownerUid != uid) {
+      throw const HouseholdException('Only the household owner can delete it.');
+    }
+
+    // Archive instead of physically deleting shared data. This removes the
+    // household from active lists and blocks access through Firestore rules,
+    // while keeping data recoverable for a future restore flow.
+    await _household(householdId).update({
+      'archivedAt': FieldValue.serverTimestamp(),
+    });
+    await _userHousehold(uid, householdId).delete();
+    if (await loadActiveId(uid) == householdId) {
+      await setActiveId(uid, null);
+    }
+  }
+
   Future<Household?> _loadHousehold(String id) async {
     final snapshot = await _household(id).get();
     final data = snapshot.data();
     if (!snapshot.exists || data == null) return null;
+    if (data['archivedAt'] != null) return null;
     final members = await _members(id).get();
     final names = members.docs
         .map((doc) => doc.data()['username'] as String? ?? doc.id)
@@ -260,6 +318,8 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         'ownerUid': household.ownerUid,
         'ownerUsername': household.ownerUsername,
         'createdAt': household.createdAt.toIso8601String(),
+        if (household.archivedAt != null)
+          'archivedAt': household.archivedAt!.toIso8601String(),
       };
 
   Map<String, Object?> _memberJson(

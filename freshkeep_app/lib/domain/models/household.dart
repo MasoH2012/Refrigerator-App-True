@@ -5,6 +5,7 @@ class Household {
     required this.inviteCode,
     this.passwordHash = '',
     this.ownerUid = '',
+    this.archivedAt,
     required this.ownerUsername,
     required this.members,
     required this.createdAt,
@@ -15,6 +16,7 @@ class Household {
   final String inviteCode;
   final String passwordHash;
   final String ownerUid;
+  final DateTime? archivedAt;
   final String ownerUsername;
   final List<String> members;
   final DateTime createdAt;
@@ -28,6 +30,7 @@ class Household {
     List<String>? members,
     String? passwordHash,
     String? ownerUid,
+    DateTime? archivedAt,
   }) =>
       Household(
         id: id,
@@ -35,6 +38,7 @@ class Household {
         inviteCode: inviteCode,
         passwordHash: passwordHash ?? this.passwordHash,
         ownerUid: ownerUid ?? this.ownerUid,
+        archivedAt: archivedAt ?? this.archivedAt,
         ownerUsername: ownerUsername,
         members: members ?? this.members,
         createdAt: createdAt,
@@ -46,6 +50,7 @@ class Household {
         'inviteCode': inviteCode,
         'passwordHash': passwordHash,
         'ownerUid': ownerUid,
+        if (archivedAt != null) 'archivedAt': archivedAt!.toIso8601String(),
         'ownerUsername': ownerUsername,
         'members': members,
         'createdAt': createdAt.toIso8601String(),
@@ -57,6 +62,9 @@ class Household {
         inviteCode: json['inviteCode']! as String,
         passwordHash: json['passwordHash'] as String? ?? '',
         ownerUid: json['ownerUid'] as String? ?? '',
+        archivedAt: json['archivedAt'] is String
+            ? DateTime.tryParse(json['archivedAt']! as String)
+            : null,
         ownerUsername: json['ownerUsername']! as String,
         members: (json['members'] as List<dynamic>? ?? const [])
             .whereType<String>()

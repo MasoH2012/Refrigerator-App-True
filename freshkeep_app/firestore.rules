@@ -12,7 +12,14 @@ service cloud.firestore {
 
     function isMember(householdId) {
       return signedIn()
+        && isActiveHousehold(householdId)
         && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    function isActiveHousehold(householdId) {
+      return exists(/databases/$(database)/documents/households/$(householdId))
+        && (!('archivedAt' in get(/databases/$(database)/documents/households/$(householdId)).data)
+          || get(/databases/$(database)/documents/households/$(householdId)).data.archivedAt == null);
     }
 
     function isOwner(householdId) {
@@ -61,8 +68,7 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid)).data.uid == request.auth.uid;
       allow update: if isOwner(householdId)
         && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.inviteCode == resource.data.inviteCode
-        && request.resource.data.passwordHash == resource.data.passwordHash;
+        && request.resource.data.inviteCode == resource.data.inviteCode;
       allow delete: if isOwner(householdId);
 
       match /members/{memberUid} {
@@ -93,7 +99,9 @@ service cloud.firestore {
     // never contains inventory or member data. It is readable only by signed-
     // in users so the join flow can validate the password before membership.
     match /householdInvites/{inviteCode} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && exists(/databases/$(database)/documents/householdInvites/$(inviteCode))
+        && isActiveHousehold(get(/databases/$(database)/documents/householdInvites/$(inviteCode)).data.householdId);
       allow create: if signedIn()
         && getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.ownerUid == request.auth.uid;
       allow update, delete: if signedIn()

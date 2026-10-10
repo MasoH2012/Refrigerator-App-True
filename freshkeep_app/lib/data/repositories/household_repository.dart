@@ -31,6 +31,18 @@ abstract interface class HouseholdRepository {
       required String username,
       required String householdId,
       required String name});
+  Future<void> changePassword({
+    required String uid,
+    required String username,
+    required String householdId,
+    required String currentPassword,
+    required String newPassword,
+  });
+  Future<void> delete({
+    required String uid,
+    required String username,
+    required String householdId,
+  });
 }
 
 class PreferencesHouseholdRepository implements HouseholdRepository {
@@ -181,6 +193,58 @@ class PreferencesHouseholdRepository implements HouseholdRepository {
     }
     households[index] = household.copyWith(name: trimmedName);
     await _writeAll(households);
+  }
+
+  @override
+  Future<void> changePassword({
+    required String uid,
+    required String username,
+    required String householdId,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final current = currentPassword.trim();
+    final next = newPassword.trim();
+    if (current.length < 4 || next.length < 4) {
+      throw const HouseholdException(
+          'Household passwords must be at least 4 characters.');
+    }
+    final households = _readAll();
+    final index =
+        households.indexWhere((household) => household.id == householdId);
+    if (index < 0) throw const HouseholdException('Household not found.');
+    final household = households[index];
+    if (_normalize(household.ownerUsername) != _normalize(username)) {
+      throw const HouseholdException(
+          'Only the household owner can change its password.');
+    }
+    if (household.passwordHash != _hashPassword(current)) {
+      throw const HouseholdException(
+          'The current household password is incorrect.');
+    }
+    households[index] = household.copyWith(passwordHash: _hashPassword(next));
+    await _writeAll(households);
+  }
+
+  @override
+  Future<void> delete({
+    required String uid,
+    required String username,
+    required String householdId,
+  }) async {
+    final households = _readAll();
+    final index =
+        households.indexWhere((household) => household.id == householdId);
+    if (index < 0) return;
+    final household = households[index];
+    if (_normalize(household.ownerUsername) != _normalize(username)) {
+      throw const HouseholdException('Only the household owner can delete it.');
+    }
+    households.removeAt(index);
+    await _writeAll(households);
+    if (await loadActiveId(uid) == householdId) {
+      await setActiveId(uid, null);
+    }
   }
 
   List<Household> _readAll() {

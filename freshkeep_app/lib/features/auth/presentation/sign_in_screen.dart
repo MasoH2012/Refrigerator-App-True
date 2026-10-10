@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/auth_controller.dart';
+import '../../household/application/household_controller.dart';
 import 'account_setup_screen.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
@@ -97,6 +98,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         icon: const Icon(Icons.person_add_outlined),
                         label: const Text('Create a new profile'),
                       ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: _joinHousehold,
+                        icon: const Icon(Icons.group_add_outlined),
+                        label: const Text('Join a household'),
+                      ),
                     ],
                   ),
                 ),
@@ -123,7 +130,123 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       MaterialPageRoute(builder: (_) => const AccountSetupScreen()),
     );
   }
+
+  Future<void> _joinHousehold() async {
+    if (!_formKey.currentState!.validate()) return;
+    final credentials = await showDialog<_LoginJoinCredentials>(
+      context: context,
+      builder: (_) => const _LoginJoinHouseholdDialog(),
+    );
+    if (credentials == null) return;
+
+    // Capture the notifiers before authentication changes AuthGate from this
+    // screen to the signed-in app shell.
+    final authController = ref.read(authProvider.notifier);
+    final householdController = ref.read(householdProvider.notifier);
+    final signInError = await authController.signIn(
+      username: _username.text,
+      password: _password.text,
+    );
+    if (signInError != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(signInError)));
+      }
+      return;
+    }
+    final joinError = await householdController.join(
+      credentials.code,
+      credentials.password,
+    );
+    if (joinError != null && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(joinError)));
+    }
+  }
 }
 
 String? _required(String? value) =>
     value == null || value.trim().isEmpty ? 'This field is required.' : null;
+
+class _LoginJoinCredentials {
+  const _LoginJoinCredentials({required this.code, required this.password});
+
+  final String code;
+  final String password;
+}
+
+class _LoginJoinHouseholdDialog extends StatefulWidget {
+  const _LoginJoinHouseholdDialog();
+
+  @override
+  State<_LoginJoinHouseholdDialog> createState() =>
+      _LoginJoinHouseholdDialogState();
+}
+
+class _LoginJoinHouseholdDialogState extends State<_LoginJoinHouseholdDialog> {
+  final _code = TextEditingController();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Join a household'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Enter the invite code and household password. Your username and account password come from the sign-in form.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _code,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Invite code',
+                hintText: 'Example: FRESH7',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration:
+                  const InputDecoration(labelText: 'Household password'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final code = _code.text.trim();
+              final password = _password.text.trim();
+              if (code.isEmpty || password.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Enter the invite code and password.'),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(
+                context,
+                _LoginJoinCredentials(code: code, password: password),
+              );
+            },
+            child: const Text('Sign in and join'),
+          ),
+        ],
+      );
+}

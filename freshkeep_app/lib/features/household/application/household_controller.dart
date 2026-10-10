@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../data/repositories/household_repository.dart';
+import '../../../data/repositories/household_password_store.dart';
 import '../../../domain/models/household.dart';
 import '../../../domain/models/data_scope.dart';
 import '../../auth/application/auth_controller.dart';
@@ -73,8 +74,9 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
             name: name,
             password: password,
           );
+      await _savePassword(uid, household.id, password);
       // Move the pre-household personal data into the first shared household.
-      if (previousDataOwner != null && !previousDataOwner.isHousehold) {
+      if (!previousDataOwner.isHousehold) {
         final inventory = await ref
             .read(inventoryRepositoryProvider)
             .loadItems(previousDataOwner);
@@ -115,12 +117,17 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     final profile = ref.read(authProvider).value?.profile;
     if (profile == null) return 'Sign in before joining a household.';
     try {
-      await ref.read(householdRepositoryProvider).join(
+      final joinedHousehold = await ref.read(householdRepositoryProvider).join(
             uid: userIdForProfile(profile),
             username: profile.username,
             inviteCode: code,
             password: password,
           );
+      await _savePassword(
+        userIdForProfile(profile),
+        joinedHousehold.id,
+        password,
+      );
       await _refresh();
       return null;
     } on HouseholdException catch (error) {
@@ -175,12 +182,102 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     }
   }
 
+  Future<String?> changePassword(
+    String householdId, {
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before changing a household password.';
+    try {
+      await ref.read(householdRepositoryProvider).changePassword(
+            uid: userIdForProfile(profile),
+            username: profile.username,
+            householdId: householdId,
+            currentPassword: currentPassword,
+            newPassword: newPassword,
+          );
+      await _savePassword(
+        userIdForProfile(profile),
+        householdId,
+        newPassword,
+      );
+      await _refresh();
+      return null;
+    } on HouseholdException catch (error) {
+      return error.message;
+    } on Object catch (error) {
+      return 'Could not change the household password: $error';
+    }
+  }
+
+  Future<String?> delete(String householdId) async {
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return 'Sign in before deleting a household.';
+    try {
+      await ref.read(householdRepositoryProvider).delete(
+            uid: userIdForProfile(profile),
+            username: profile.username,
+            householdId: householdId,
+          );
+      await _deleteSavedPassword(userIdForProfile(profile), householdId);
+      await _refresh();
+      return null;
+    } on HouseholdException catch (error) {
+      return error.message;
+    } on Object catch (error) {
+      return 'Could not delete the household: $error';
+    }
+  }
+
+  Future<String?> loadSavedPassword(String householdId) async {
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) return null;
+    try {
+      return await ref.read(householdPasswordStoreProvider).read(
+            uid: userIdForProfile(profile),
+            householdId: householdId,
+          );
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> _savePassword(
+      String uid, String householdId, String password) async {
+    try {
+      await ref.read(householdPasswordStoreProvider).save(
+            uid: uid,
+            householdId: householdId,
+            password: password.trim(),
+          );
+    } on Object {
+      // Cloud household creation/joining must still succeed if secure storage
+      // is temporarily unavailable. The password remains protected by its
+      // Firestore hash and can be entered again later.
+    }
+  }
+
+  Future<void> _deleteSavedPassword(String uid, String householdId) async {
+    try {
+      await ref.read(householdPasswordStoreProvider).delete(
+            uid: uid,
+            householdId: householdId,
+          );
+    } on Object {
+      // The household is already archived remotely; a local cleanup failure
+      // should not turn a successful delete into a visible error.
+    }
+  }
+
   Future<void> _refresh() async {
-    // Finish this provider's own state transition before invalidating the
-    // dependent inventory and shopping providers. Invalidating them while
-    // this notifier is still refreshing lets inventory -> householdDataOwner
-    // -> household re-enter the current operation and creates a Riverpod
-    // circular dependency.
+    // Complete the household provider's own state transition first. If the
+    // inventory provider is invalidated while this notifier is still loading,
+    // inventory -> householdDataOwner -> household can be evaluated again
+    // before the current household operation has finished. Riverpod then sees
+    // that as a circular dependency. Refreshing the household state first and
+    // scheduling dependent refreshes for the next event-loop turn avoids that
+    // re-entrant evaluation.
     state = AsyncData(await _loadState());
     Future<void>.microtask(() {
       ref.invalidate(inventoryProvider);

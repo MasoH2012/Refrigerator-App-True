@@ -55,4 +55,42 @@ void main() {
       throwsA(isA<HouseholdException>()),
     );
   });
+
+  test('allows the owner to change the password and delete a household',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final repository = PreferencesHouseholdRepository(preferences);
+    final household = await repository.create(
+      uid: 'uid-alex',
+      username: 'Alex',
+      name: 'Alex home',
+      password: 'secret',
+    );
+
+    await repository.changePassword(
+      uid: 'uid-alex',
+      username: 'Alex',
+      householdId: household.id,
+      currentPassword: 'secret',
+      newPassword: 'new-secret',
+    );
+    await repository.join(
+      uid: 'uid-sam',
+      username: 'Sam',
+      inviteCode: household.inviteCode,
+      password: 'new-secret',
+    );
+
+    await repository.delete(
+      uid: 'uid-alex',
+      username: 'Alex',
+      householdId: household.id,
+    );
+    expect(await repository.loadActiveId('uid-alex'), isNull);
+    expect(
+      await repository.loadForUser(uid: 'uid-alex', username: 'Alex'),
+      isEmpty,
+    );
+  });
 }
