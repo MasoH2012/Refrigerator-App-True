@@ -64,8 +64,10 @@ service cloud.firestore {
     match /households/{householdId} {
       allow read: if isMember(householdId);
       allow create: if signedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && getAfter(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid)).data.uid == request.auth.uid;
+        // The repository creates the household document before its member
+        // document. Keep creation owner-scoped, then authorize the member
+        // write separately below.
+        && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isOwner(householdId)
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.inviteCode == resource.data.inviteCode;
