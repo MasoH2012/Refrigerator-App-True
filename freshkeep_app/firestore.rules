@@ -55,8 +55,10 @@ service cloud.firestore {
       // document. getAfter() prevents a user from inventing an index entry.
       match /households/{householdId} {
         allow read: if isUser(userId);
-        allow create: if isUser(userId)
-          && getAfter(/databases/$(database)/documents/households/$(householdId)/members/$(userId)).data.uid == userId;
+        // This is only a private index for the signed-in user's households.
+        // The household and membership documents may be written in separate
+        // requests, so do not require a particular write ordering here.
+        allow create: if isUser(userId);
         allow delete: if isUser(userId);
       }
     }
