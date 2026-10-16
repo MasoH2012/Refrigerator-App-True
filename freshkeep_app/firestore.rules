@@ -77,15 +77,23 @@ service cloud.firestore {
 
       match /members/{memberUid} {
         allow read: if isMember(householdId);
-        allow create: if (signedIn()
-            && request.auth.uid == memberUid
-            && getAfter(/databases/$(database)/documents/households/$(householdId)).data.ownerUid == request.auth.uid)
-          || isOwner(householdId)
-          || (signedIn()
-            && request.auth.uid == memberUid
-            && request.resource.data.uid == memberUid
-            && request.resource.data.passwordHash == get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.passwordHash
-            && get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.householdId == householdId);
+        allow create: if signedIn()
+          && request.auth.uid == memberUid
+          && (
+            // The owner is created together with the household document.
+            getAfter(/databases/$(database)/documents/households/$(householdId)).data.ownerUid == request.auth.uid
+            || (
+              // A new member must prove both the invite code and its
+              // matching household password hash. No household data is
+              // exposed by this invite document.
+              request.resource.data.uid == memberUid
+              && request.resource.data.inviteCode is string
+              && request.resource.data.passwordHash is string
+              && exists(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode))
+              && request.resource.data.passwordHash == get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.passwordHash
+              && get(/databases/$(database)/documents/householdInvites/$(request.resource.data.inviteCode)).data.householdId == householdId
+            )
+          );
         allow delete: if isOwner(householdId) || (signedIn() && request.auth.uid == memberUid);
         allow update: if isOwner(householdId);
       }
@@ -103,9 +111,11 @@ service cloud.firestore {
     // never contains inventory or member data. It is readable only by signed-
     // in users so the join flow can validate the password before membership.
     match /householdInvites/{inviteCode} {
-      allow read: if signedIn()
-        && exists(/databases/$(database)/documents/householdInvites/$(inviteCode))
-        && isActiveHousehold(get(/databases/$(database)/documents/householdInvites/$(inviteCode)).data.householdId);
+      // Invite documents contain only a household id and a one-way password
+      // hash. They are not household data, so authenticated users may read a
+      // code to validate a join. Inventory and member data remains protected
+      // by the household membership rules below.
+      allow read: if signedIn();
       allow create: if signedIn()
         && getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.ownerUid == request.auth.uid;
       allow update, delete: if signedIn()
