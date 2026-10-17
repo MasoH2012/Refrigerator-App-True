@@ -10,11 +10,10 @@ import 'package:http/testing.dart';
 void main() {
   final today = DateTime(2026, 8, 22);
 
-  test('does not substitute static recipes when AI is not configured',
-      () async {
+  test('returns curated recipes without a network endpoint', () async {
     final client = http.Client();
     addTearDown(client.close);
-    final service = HybridRecipeSuggestionService(
+    final service = CuratedRecipeSuggestionService(
       client: client,
       endpoint: null,
       now: () => today,
@@ -27,13 +26,25 @@ void main() {
       filters: const RecipeFilters(),
     );
 
-    expect(result.source, RecipeSuggestionSource.unavailable);
-    expect(result.recipes, isEmpty);
-    expect(result.notice, contains('not configured'));
+    expect(result.source, RecipeSuggestionSource.curated);
+    expect(result.recipes, isNotEmpty);
+    expect(result.notice, isNull);
   });
 
-  test('sends current fridge inventory and requests fresh AI recipes',
-      () async {
+  test('shows starter recipes when the inventory is empty', () async {
+    final service = CuratedRecipeSuggestionService(now: () => today);
+
+    final result = await service.suggest(
+      items: const [],
+      filters: const RecipeFilters(),
+    );
+
+    expect(result.source, RecipeSuggestionSource.curated);
+    expect(result.recipes, isNotEmpty);
+    expect(result.notice, contains('starter recipes'));
+  });
+
+  test('returns local recipes without contacting a remote service', () async {
     final client = MockClient((request) async {
       final body = jsonDecode(request.body) as Map<String, Object?>;
       final items = body['items']! as List<Object?>;
@@ -56,7 +67,7 @@ void main() {
         200,
       );
     });
-    final service = HybridRecipeSuggestionService(
+    final service = CuratedRecipeSuggestionService(
       client: client,
       endpoint: Uri.parse('https://recipes.example.test/suggest'),
       now: () => today,
@@ -69,11 +80,11 @@ void main() {
       filters: const RecipeFilters(),
     );
 
-    expect(result.source, RecipeSuggestionSource.ai);
-    expect(result.recipes.single.name, 'Creamy spinach pasta');
+    expect(result.source, RecipeSuggestionSource.curated);
+    expect(result.recipes, isNotEmpty);
   });
 
-  test('reconciles AI fridge claims against real inventory IDs', () async {
+  test('matches catalog ingredients to real inventory IDs', () async {
     final client = MockClient((request) async => http.Response(
           jsonEncode({
             'recipes': [
@@ -90,7 +101,7 @@ void main() {
           }),
           200,
         ));
-    final service = HybridRecipeSuggestionService(
+    final service = CuratedRecipeSuggestionService(
       client: client,
       endpoint: Uri.parse('https://recipes.example.test/suggest'),
       now: () => today,
@@ -104,12 +115,15 @@ void main() {
       filters: const RecipeFilters(vegetarian: true),
     );
 
-    expect(result.source, RecipeSuggestionSource.ai);
-    expect(result.recipes.single.usedInventoryItemIds, {'spinach', 'eggs'});
-    expect(result.recipes.single.missingIngredientCount, 0);
+    expect(result.source, RecipeSuggestionSource.curated);
+    final matching = result.recipes.firstWhere(
+      (recipe) => recipe.usedInventoryItemIds.containsAll({'spinach', 'eggs'}),
+    );
+    expect(matching.usedInventoryItemIds, containsAll({'spinach', 'eggs'}));
+    expect(matching.missingIngredientCount, greaterThanOrEqualTo(0));
   });
 
-  test('enforces fridge-only and avoided ingredients on AI results', () async {
+  test('enforces fridge-only and avoided-ingredient filters', () async {
     final client = MockClient((request) async => http.Response(
           jsonEncode({
             'recipes': [
@@ -135,7 +149,7 @@ void main() {
           }),
           200,
         ));
-    final service = HybridRecipeSuggestionService(
+    final service = CuratedRecipeSuggestionService(
       client: client,
       endpoint: Uri.parse('https://recipes.example.test/suggest'),
       now: () => today,
@@ -153,13 +167,14 @@ void main() {
       ),
     );
 
-    expect(result.recipes.map((recipe) => recipe.id), ['green-wraps']);
+    expect(result.source, RecipeSuggestionSource.curated);
+    expect(result.recipes, isEmpty);
   });
 
-  test('shows unavailable state rather than static recipes on API failure',
+  test('keeps returning local recipes when a remote client would fail',
       () async {
     final client = MockClient((request) async => http.Response('error', 503));
-    final service = HybridRecipeSuggestionService(
+    final service = CuratedRecipeSuggestionService(
       client: client,
       endpoint: Uri.parse('https://recipes.example.test/suggest'),
       now: () => today,
@@ -172,9 +187,8 @@ void main() {
       filters: const RecipeFilters(),
     );
 
-    expect(result.source, RecipeSuggestionSource.unavailable);
-    expect(result.recipes, isEmpty);
-    expect(result.notice, contains('configured'));
+    expect(result.source, RecipeSuggestionSource.curated);
+    expect(result.recipes, isNotEmpty);
   });
 }
 

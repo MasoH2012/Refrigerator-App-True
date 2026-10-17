@@ -13,13 +13,12 @@ import 'household_repository.dart';
 import 'firestore_household_repository.dart';
 import 'firestore_user_preferences_repository.dart';
 import 'firebase_auth_repository.dart';
+import 'saved_recipe_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   if (Firebase.apps.isNotEmpty) {
-    return FirebaseAuthRepository(
-      preferences: ref.watch(sharedPreferencesProvider),
-    );
+    return FirebaseAuthRepository();
   }
   return LocalAuthRepository(ref.watch(sharedPreferencesProvider));
 });
@@ -61,4 +60,9 @@ final householdRepositoryProvider = Provider<HouseholdRepository>((ref) {
     );
   }
   return PreferencesHouseholdRepository(ref.watch(sharedPreferencesProvider));
+});
+
+final savedRecipeRepositoryProvider = Provider<SavedRecipeRepository>((ref) {
+  if (Firebase.apps.isEmpty) return InMemorySavedRecipeRepository();
+  return FirestoreSavedRecipeRepository();
 });

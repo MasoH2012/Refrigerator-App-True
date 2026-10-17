@@ -1,5 +1,4 @@
 import 'food_item.dart';
-import 'refrigerator_model.dart';
 
 class FridgeOrganizationAssignment {
   const FridgeOrganizationAssignment({

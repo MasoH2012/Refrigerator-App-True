@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/auth_controller.dart';
@@ -209,9 +210,15 @@ class _LoginJoinHouseholdDialogState extends State<_LoginJoinHouseholdDialog> {
               controller: _code,
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
+              maxLength: 8,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
+                LengthLimitingTextInputFormatter(8),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Invite code',
-                hintText: 'Example: FRESH7',
+                hintText: 'Example: 8V552MGA',
+                helperText: 'Enter all 8 characters from the household card.',
               ),
             ),
             const SizedBox(height: 12),
@@ -232,10 +239,12 @@ class _LoginJoinHouseholdDialogState extends State<_LoginJoinHouseholdDialog> {
             onPressed: () {
               final code = _code.text.trim();
               final password = _password.text.trim();
-              if (code.isEmpty || password.isEmpty) {
+              if (code.length != 8 || password.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Enter the invite code and password.'),
+                    content: Text(
+                      'Enter the full 8-character invite code and password.',
+                    ),
                   ),
                 );
                 return;

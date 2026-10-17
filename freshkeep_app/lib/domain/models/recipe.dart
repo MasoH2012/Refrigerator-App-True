@@ -1,6 +1,6 @@
 enum RecipeIngredientSource { fridge, pantry, shopping }
 
-enum RecipeOrigin { curated, adapted, aiGenerated }
+enum RecipeOrigin { curated, adapted, aiGenerated, userCreated }
 
 class RecipeIngredient {
   const RecipeIngredient({
@@ -68,6 +68,7 @@ class Recipe {
     required this.imageUrl,
     required this.ingredients,
     required this.steps,
+    this.equipment = const ['Knife', 'Cutting board'],
     this.servings = 2,
     this.origin = RecipeOrigin.curated,
     this.sourceUrl,
@@ -85,6 +86,9 @@ class Recipe {
   final String imageUrl;
   final List<RecipeIngredient> ingredients;
   final List<String> steps;
+
+  /// Tools and cookware needed before starting the recipe.
+  final List<String> equipment;
   final int servings;
   final RecipeOrigin origin;
   final String? sourceUrl;
@@ -107,7 +111,8 @@ class Recipe {
       .whereType<String>()
       .toSet();
 
-  bool get isAiAssisted => origin != RecipeOrigin.curated;
+  bool get isAiAssisted =>
+      origin == RecipeOrigin.adapted || origin == RecipeOrigin.aiGenerated;
 
   Recipe copyWith({
     String? id,
@@ -118,6 +123,7 @@ class Recipe {
     String? imageUrl,
     List<RecipeIngredient>? ingredients,
     List<String>? steps,
+    List<String>? equipment,
     int? servings,
     RecipeOrigin? origin,
     String? sourceUrl,
@@ -135,6 +141,7 @@ class Recipe {
         imageUrl: imageUrl ?? this.imageUrl,
         ingredients: ingredients ?? this.ingredients,
         steps: steps ?? this.steps,
+        equipment: equipment ?? this.equipment,
         servings: servings ?? this.servings,
         origin: origin ?? this.origin,
         sourceUrl: sourceUrl ?? this.sourceUrl,
@@ -153,6 +160,7 @@ class Recipe {
         'imageUrl': imageUrl,
         'ingredients': ingredients.map((item) => item.toJson()).toList(),
         'steps': steps,
+        'equipment': equipment,
         'servings': servings,
         'origin': origin.name,
         'sourceUrl': sourceUrl,
@@ -179,6 +187,8 @@ class Recipe {
           )
           .toList(),
       steps: (json['steps']! as List<Object?>).cast<String>(),
+      equipment: (json['equipment'] as List<Object?>?)?.cast<String>() ??
+          const ['Knife', 'Cutting board'],
       servings: (json['servings'] as num?)?.round() ?? 2,
       origin: RecipeOrigin.values
               .where(

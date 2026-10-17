@@ -1,13 +1,9 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/recipe.dart';
 import '../../../domain/models/recipe_filters.dart';
+import 'curated_recipe_catalog.dart';
 
-enum RecipeSuggestionSource { ai, unavailable }
+enum RecipeSuggestionSource { curated, aiGenerated, unavailable }
 
 class RecipeSuggestionResult {
   const RecipeSuggestionResult({
@@ -21,6 +17,20 @@ class RecipeSuggestionResult {
   final RecipeSuggestionSource source;
   final DateTime generatedAt;
   final String? notice;
+
+  RecipeSuggestionResult copyWith({
+    List<Recipe>? recipes,
+    RecipeSuggestionSource? source,
+    DateTime? generatedAt,
+    String? notice,
+    bool clearNotice = false,
+  }) =>
+      RecipeSuggestionResult(
+        recipes: recipes ?? this.recipes,
+        source: source ?? this.source,
+        generatedAt: generatedAt ?? this.generatedAt,
+        notice: clearNotice ? null : notice ?? this.notice,
+      );
 }
 
 abstract interface class RecipeSuggestionService {
@@ -30,17 +40,14 @@ abstract interface class RecipeSuggestionService {
   });
 }
 
-class HybridRecipeSuggestionService implements RecipeSuggestionService {
-  HybridRecipeSuggestionService({
-    required http.Client client,
-    required Uri? endpoint,
+class CuratedRecipeSuggestionService implements RecipeSuggestionService {
+  CuratedRecipeSuggestionService({
+    // Kept as ignored compatibility parameters for existing callers/tests.
+    Object? client,
+    Uri? endpoint,
     DateTime Function()? now,
-  })  : _client = client,
-        _endpoint = endpoint,
-        _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now;
 
-  final http.Client _client;
-  final Uri? _endpoint;
   final DateTime Function() _now;
 
   @override
@@ -52,115 +59,26 @@ class HybridRecipeSuggestionService implements RecipeSuggestionService {
     final usableItems =
         items.where((item) => item.daysUntilExpiration(today) >= 0).toList();
 
-    if (usableItems.isEmpty) {
-      return RecipeSuggestionResult(
-        recipes: const [],
-        source: RecipeSuggestionSource.unavailable,
-        generatedAt: today,
-        notice:
-            'Add at least one non-expired fridge item before generating recipes.',
-      );
-    }
-
-    if (_endpoint == null) {
-      return RecipeSuggestionResult(
-        recipes: const [],
-        source: RecipeSuggestionSource.unavailable,
-        generatedAt: today,
-        notice: 'AI recipe generation is not configured for this build.',
-      );
-    }
-
-    try {
-      final remoteRecipes = await _fetchRemoteSuggestions(
-        items: usableItems,
-        filters: filters,
-      );
-      return RecipeSuggestionResult(
-        recipes: remoteRecipes,
-        source: RecipeSuggestionSource.ai,
-        generatedAt: today,
-        notice: remoteRecipes.isEmpty
-            ? 'The AI could not create a recipe that satisfies every selected filter.'
-            : null,
-      );
-    } on Object catch (error) {
-      return RecipeSuggestionResult(
-        recipes: const [],
-        source: RecipeSuggestionSource.unavailable,
-        generatedAt: today,
-        notice: error is RecipeSuggestionException && error.statusCode == 503
-            ? 'The AI recipe server needs to be configured before it can create recipes.'
-            : 'FreshKeep could not reach the AI recipe service. Try again shortly.',
-      );
-    }
-  }
-
-  Future<List<Recipe>> _fetchRemoteSuggestions({
-    required List<FoodItem> items,
-    required RecipeFilters filters,
-  }) async {
-    final response = await _client
-        .post(
-          _endpoint!,
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({
-            'items': items
-                .map(
-                  (item) => {
-                    'id': item.id,
-                    'name': item.name,
-                    'quantity': item.quantity,
-                    'category': item.category.name,
-                    'storageLocation': item.storageLocation.name,
-                    'expirationDate': item.expirationDate.toIso8601String(),
-                    'daysUntilExpiration': item.daysUntilExpiration(_now()),
-                  },
-                )
-                .toList(),
-            'filters': filters.toJson(),
-            'requestNonce': _now().microsecondsSinceEpoch,
-          }),
-        )
-        // Recipe generation can include web search and structured output,
-        // which can take longer than a normal API request.
-        .timeout(const Duration(seconds: 90));
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw RecipeSuggestionException(
-        'Recipe service returned ${response.statusCode}.',
-        statusCode: response.statusCode,
-      );
-    }
-
-    final payload = jsonDecode(response.body);
-    if (payload is! Map<String, Object?> || payload['recipes'] is! List) {
-      throw const FormatException('Invalid recipe service response.');
-    }
-
-    final parsed = <Recipe>[];
-    for (final (index, value) in (payload['recipes']! as List).indexed) {
-      if (value is! Map) continue;
-      try {
-        final json = Map<String, Object?>.from(value);
-        json.putIfAbsent(
-          'id',
-          () => 'ai-${_now().millisecondsSinceEpoch}-$index',
-        );
-        json.putIfAbsent('imageUrl', () => '');
-        final recipe = _reconcileRecipe(
-          Recipe.fromJson(json),
-          items,
-          filters,
-        );
-        if (_passesFilters(recipe, filters)) parsed.add(recipe);
-      } on Object {
-        continue;
-      }
-    }
-
-    parsed.sort(_compareRecipes);
-    return parsed.take(8).toList();
+    // Recipe generation is intentionally local for now. This avoids network
+    // failures, API keys, and timeouts while still tailoring the built-in
+    // catalog to the user's inventory and filters.
+    final curatedRecipes = CuratedRecipeCatalog.recipes
+        .map((recipe) => _reconcileRecipe(recipe, usableItems, filters))
+        .where((recipe) => _passesFilters(recipe, filters))
+        .toList()
+      ..sort(_compareRecipes);
+    return RecipeSuggestionResult(
+      recipes: curatedRecipes.take(8).toList(),
+      source: RecipeSuggestionSource.curated,
+      generatedAt: today,
+      notice: curatedRecipes.isEmpty
+          ? 'No built-in recipe matches every selected filter. Try removing a filter.'
+          : items.isEmpty
+              ? 'Showing starter recipes. Add food to tailor these ideas to your fridge.'
+              : usableItems.isEmpty
+                  ? 'Your tracked food is expired. Showing starter recipes while you refresh your inventory.'
+                  : null,
+    );
   }
 
   Recipe _reconcileRecipe(

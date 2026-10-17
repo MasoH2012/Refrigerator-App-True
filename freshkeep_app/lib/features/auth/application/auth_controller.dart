@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/household_password_store.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/data_scope.dart';
@@ -21,10 +22,13 @@ class AuthController extends AsyncNotifier<AuthSession> {
     required String password,
     required String refrigeratorModel,
     required List<FoodItem> initialItems,
+    String? householdInviteCode,
+    String? householdPassword,
   }) async {
     state = const AsyncLoading();
+    UserProfile? profile;
     try {
-      final profile = await _authRepository.register(
+      profile = await _authRepository.register(
         username: username,
         password: password,
         refrigeratorModel: refrigeratorModel,
@@ -32,6 +36,66 @@ class AuthController extends AsyncNotifier<AuthSession> {
       await ref
           .read(inventoryRepositoryProvider)
           .saveItems(privateScopeForProfile(profile), initialItems);
+
+      // A new account can join an existing household during setup. Keep this
+      // separate from account creation so a bad invite never deletes or
+      // invalidates the Firebase account that was just created.
+      String? householdWarning;
+      final code = householdInviteCode?.trim();
+      final householdSecret = householdPassword?.trim();
+      if (code != null &&
+          code.isNotEmpty &&
+          householdSecret != null &&
+          householdSecret.isNotEmpty) {
+        try {
+          final uid = userIdForProfile(profile);
+          final household = await ref.read(householdRepositoryProvider).join(
+                uid: uid,
+                username: profile.username,
+                inviteCode: code,
+                password: householdSecret,
+              );
+          await ref.read(householdPasswordStoreProvider).save(
+                uid: uid,
+                householdId: household.id,
+                password: householdSecret,
+              );
+          if (household.refrigeratorModel.isNotEmpty) {
+            profile = await _authRepository.updateRefrigeratorModel(
+              username: profile.username,
+              refrigeratorModel: household.refrigeratorModel,
+            );
+          }
+          // Make the starter inventory visible to the shared household. Read
+          // the existing shared list first so a new member cannot overwrite
+          // food already owned by the household.
+          if (initialItems.isNotEmpty) {
+            final sharedScope = DataScope.household(
+              uid: uid,
+              householdId: household.id,
+              legacyOwnerId: profile.username,
+            );
+            final inventoryRepository = ref.read(inventoryRepositoryProvider);
+            // saveItems synchronizes a complete scope and removes documents
+            // that are not in the provided list. Load the existing shared
+            // inventory first so a new member's starter items are appended
+            // instead of replacing the household's food.
+            final existingSharedItems =
+                await inventoryRepository.loadItems(sharedScope);
+            await inventoryRepository.saveItems(
+              sharedScope,
+              [...existingSharedItems, ...initialItems],
+            );
+            await inventoryRepository.saveItems(
+              privateScopeForProfile(profile),
+              const [],
+            );
+          }
+        } on Object catch (error) {
+          householdWarning =
+              'Profile created, but we could not join that household: $error';
+        }
+      }
       state = AsyncData(
         AuthSession(
           profile: profile,
@@ -39,7 +103,7 @@ class AuthController extends AsyncNotifier<AuthSession> {
           hasProfiles: true,
         ),
       );
-      return null;
+      return householdWarning;
     } catch (error) {
       final restored = await _authRepository.restoreSession();
       state = AsyncData(restored);

@@ -104,6 +104,25 @@ class _CookingModeScreenState extends State<CookingModeScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    Card(
+                      child: ExpansionTile(
+                        leading: const Icon(Icons.handyman_outlined),
+                        title: const Text('Materials needed'),
+                        subtitle: Text(
+                          '${widget.recipe.equipment.length} tool${widget.recipe.equipment.length == 1 ? '' : 's'}',
+                        ),
+                        children: widget.recipe.equipment
+                            .map(
+                              (tool) => ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.check),
+                                title: Text(tool),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

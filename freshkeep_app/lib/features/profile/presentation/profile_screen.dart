@@ -27,10 +27,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(authProvider).value?.profile;
-    final refrigerator = profile == null
-        ? null
-        : RefrigeratorCatalog.byId(profile.refrigeratorModel);
     final household = ref.watch(householdProvider).value?.active;
+    final refrigeratorId = household?.refrigeratorModel.isNotEmpty == true
+        ? household!.refrigeratorModel
+        : profile?.refrigeratorModel ?? '';
+    final refrigerator = RefrigeratorCatalog.byId(refrigeratorId);
     if (profile != null && _settingsUsername != profile.username) {
       _settingsUsername = profile.username;
       WidgetsBinding.instance
@@ -54,7 +55,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           Text(
-            refrigerator?.shortName ?? profile?.refrigeratorModel ?? '',
+            refrigerator?.shortName ??
+                (refrigeratorId.isEmpty
+                    ? 'Refrigerator not selected'
+                    : refrigeratorId),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
@@ -107,8 +111,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   title: const Text('Refrigerator'),
                   subtitle: Text(
                     refrigerator?.displayName ??
-                        profile?.refrigeratorModel ??
-                        '',
+                        (refrigeratorId.isEmpty
+                            ? 'Choose a model from the verified catalog'
+                            : refrigeratorId),
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _showRefrigeratorDetails,

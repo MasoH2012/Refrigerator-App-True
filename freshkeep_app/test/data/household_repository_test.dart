@@ -56,6 +56,42 @@ void main() {
     );
   });
 
+  test('lets a member leave without removing the household or owner', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final repository = PreferencesHouseholdRepository(preferences);
+    final household = await repository.create(
+      uid: 'uid-alex',
+      username: 'Alex',
+      name: 'Alex home',
+      password: 'secret',
+    );
+    await repository.join(
+      uid: 'uid-sam',
+      username: 'Sam',
+      inviteCode: household.inviteCode,
+      password: 'secret',
+    );
+
+    await repository.leave(
+      uid: 'uid-sam',
+      username: 'Sam',
+      householdId: household.id,
+    );
+
+    expect(await repository.loadActiveId('uid-sam'), isNull);
+    expect(
+      (await repository.loadForUser(uid: 'uid-alex', username: 'Alex'))
+          .single
+          .members,
+      ['Alex'],
+    );
+    expect(
+      await repository.loadForUser(uid: 'uid-sam', username: 'Sam'),
+      isEmpty,
+    );
+  });
+
   test('allows the owner to change the password and delete a household',
       () async {
     SharedPreferences.setMockInitialValues({});

@@ -1,8 +1,3 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/fridge_organization.dart';
 import '../../../domain/models/refrigerator_model.dart';
@@ -16,83 +11,67 @@ class FridgeOrganizationException implements Exception {
 }
 
 class FridgeOrganizationService {
-  FridgeOrganizationService(
-      {required http.Client client, required Uri? endpoint})
-      : _client = client,
-        _endpoint = endpoint;
-
-  final http.Client _client;
-  final Uri? _endpoint;
+  FridgeOrganizationService();
 
   Future<FridgeOrganizationPlan> organize({
     required List<FoodItem> items,
     required RefrigeratorModel refrigerator,
   }) async {
-    if (_endpoint == null) {
-      throw const FridgeOrganizationException(
-        'AI fridge organization is not configured for this build.',
-        statusCode: 503,
-      );
-    }
-    final response = await _client
-        .post(
-          _endpoint!,
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({
-            'refrigerator': {
-              'id': refrigerator.id,
-              'displayName': refrigerator.displayName,
-              'layout': refrigerator.layout.name,
-              'shelves': refrigerator.refrigeratorShelves,
-              'crisperDrawers': refrigerator.crisperDrawers,
-              'doorBins': refrigerator.doorBins,
-              'freezerLevels': refrigerator.freezerLevels,
-            },
-            'items': items
-                .map(
-                  (item) => {
-                    'id': item.id,
-                    'name': item.name,
-                    'quantity': item.quantity,
-                    'category': item.category.name,
-                    'currentZone': item.zone.name,
-                    'expirationDate': item.expirationDate.toIso8601String(),
-                  },
-                )
-                .toList(),
-          }),
-        )
-        // Organization plans use the same AI service as recipes and may
-        // include web-backed reasoning, so allow the longer server window.
-        .timeout(const Duration(seconds: 90));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw FridgeOrganizationException(
-        'Organization service returned ${response.statusCode}.',
-        statusCode: response.statusCode,
-      );
-    }
-    final payload = jsonDecode(response.body);
-    if (payload is! Map<String, Object?> || payload['assignments'] is! List) {
-      throw const FormatException('Invalid organization service response.');
-    }
-    final assignments = <FridgeOrganizationAssignment>[];
-    for (final value in payload['assignments']! as List) {
-      if (value is! Map) continue;
-      try {
-        assignments.add(
-          FridgeOrganizationAssignment.fromJson(
-            Map<String, Object?>.from(value),
+    final assignments = items
+        .map(
+          (item) => FridgeOrganizationAssignment(
+            itemId: item.id,
+            itemName: item.name,
+            zone: _recommendedZone(item),
+            reason: _reasonFor(item),
+            size: _sizeFor(item.quantity),
           ),
-        );
-      } on Object {
-        continue;
-      }
-    }
+        )
+        .toList();
     return FridgeOrganizationPlan(
       assignments: assignments,
-      summary: payload['summary'] as String? ??
-          'Your fridge has an updated organization plan.',
+      summary: assignments.isEmpty
+          ? 'Add refrigerated food to create an organization plan.'
+          : 'A quick placement plan based on food safety, humidity, and access.',
       generatedAt: DateTime.now(),
     );
+  }
+
+  FridgeZone _recommendedZone(FoodItem item) {
+    final name = item.name.toLowerCase();
+    if (item.category == FoodCategory.beverage) return FridgeZone.door;
+    if (item.category == FoodCategory.protein) return FridgeZone.lowerShelf;
+    if (item.category == FoodCategory.leftovers) return FridgeZone.topShelf;
+    if (item.category == FoodCategory.dairy) return FridgeZone.middleShelf;
+    if (item.category == FoodCategory.produce) {
+      const fruits = {'apple', 'banana', 'berry', 'berries', 'grape', 'orange'};
+      return fruits.any(name.contains)
+          ? FridgeZone.lowHumidity
+          : FridgeZone.highHumidity;
+    }
+    return FridgeZone.middleShelf;
+  }
+
+  String _reasonFor(FoodItem item) => switch (item.category) {
+        FoodCategory.protein =>
+          'Keep raw proteins low to reduce cross-contamination risk.',
+        FoodCategory.produce =>
+          'Use the crisper humidity setting to preserve freshness.',
+        FoodCategory.dairy =>
+          'A stable middle-shelf temperature suits dairy products.',
+        FoodCategory.beverage => 'The door keeps drinks easy to reach.',
+        FoodCategory.leftovers =>
+          'Keep prepared food visible and easy to use first.',
+        FoodCategory.pantry =>
+          'Place shelf-stable items where they are easy to find.',
+      };
+
+  String _sizeFor(String quantity) {
+    final amount = double.tryParse(
+      RegExp(r'\d+(?:\.\d+)?').firstMatch(quantity)?.group(0) ?? '',
+    );
+    if (amount != null && amount <= 1) return 'small';
+    if (amount != null && amount >= 4) return 'large';
+    return 'medium';
   }
 }

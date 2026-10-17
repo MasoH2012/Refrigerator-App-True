@@ -6,6 +6,7 @@ import '../../../domain/models/refrigerator_model.dart';
 import '../../../domain/models/fridge_organization.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
+import '../../household/application/household_controller.dart';
 import '../application/fridge_organization_controller.dart';
 
 class OrganizationScreen extends ConsumerWidget {
@@ -14,8 +15,10 @@ class OrganizationScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(inventoryProvider).value ?? const <FoodItem>[];
-    final savedModelId =
-        ref.watch(authProvider).value?.profile?.refrigeratorModel ?? '';
+    final household = ref.watch(householdProvider).value?.active;
+    final savedModelId = household?.refrigeratorModel.isNotEmpty == true
+        ? household!.refrigeratorModel
+        : ref.watch(authProvider).value?.profile?.refrigeratorModel ?? '';
     final refrigerator = RefrigeratorCatalog.byId(savedModelId);
     final organization = ref.watch(fridgeOrganizationProvider);
 
@@ -55,7 +58,7 @@ class OrganizationScreen extends ConsumerWidget {
               label: Text(
                 organization.isLoading
                     ? 'Organizing your fridge…'
-                    : 'Auto-organize with AI',
+                    : 'Auto-organize fridge',
               ),
             ),
             const SizedBox(height: 12),
@@ -71,7 +74,7 @@ class OrganizationScreen extends ConsumerWidget {
                   ref.invalidate(fridgeOrganizationProvider);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('AI organization applied.')),
+                      const SnackBar(content: Text('Organization applied.')),
                     );
                   }
                 },
@@ -134,7 +137,7 @@ class _OrganizationPlanCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'AI organization plan',
+                      'Organization plan',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
@@ -176,7 +179,7 @@ class _OrganizationError extends StatelessWidget {
         color: Theme.of(context).colorScheme.errorContainer,
         child: ListTile(
           leading: const Icon(Icons.info_outline),
-          title: const Text('AI organization unavailable'),
+          title: const Text('Organization unavailable'),
           subtitle:
               Text(message.replaceFirst('FridgeOrganizationException: ', '')),
         ),
@@ -261,6 +264,9 @@ class _FridgeDiagram extends StatelessWidget {
           RefrigeratorLayoutKind.frenchDoor3 => _threeDoor(context),
           RefrigeratorLayoutKind.frenchDoor4 => _fourDoor(context),
           RefrigeratorLayoutKind.sideBySide => _sideBySide(context),
+          RefrigeratorLayoutKind.topFreezer => _topFreezer(context),
+          RefrigeratorLayoutKind.bottomFreezer => _bottomFreezer(context),
+          RefrigeratorLayoutKind.compact => _compact(context),
         },
       );
 
@@ -403,6 +409,90 @@ class _FridgeDiagram extends StatelessWidget {
         ),
       );
 
+  Widget _topFreezer(BuildContext context) => Column(
+        children: [
+          _Compartment(
+            title: 'TOP FREEZER',
+            detail: '${model.freezerLevels} storage levels',
+            icon: Icons.ac_unit,
+            items: const ['Frozen foods'],
+            minimumHeight: 110,
+          ),
+          const SizedBox(height: 8),
+          _Compartment(
+            title: 'FRESH-FOOD CABINET',
+            detail:
+                '${model.refrigeratorShelves} shelves · ${model.doorBins} door bins',
+            icon: Icons.kitchen_outlined,
+            items: _names([
+              FridgeZone.topShelf,
+              FridgeZone.middleShelf,
+              FridgeZone.lowerShelf,
+              FridgeZone.door,
+              FridgeZone.highHumidity,
+              FridgeZone.lowHumidity,
+            ]),
+            minimumHeight: 220,
+          ),
+        ],
+      );
+
+  Widget _bottomFreezer(BuildContext context) => Column(
+        children: [
+          _Compartment(
+            title: 'FRESH-FOOD CABINET',
+            detail:
+                '${model.refrigeratorShelves} shelves · ${model.doorBins} door bins',
+            icon: Icons.kitchen_outlined,
+            items: _names([
+              FridgeZone.topShelf,
+              FridgeZone.middleShelf,
+              FridgeZone.lowerShelf,
+              FridgeZone.door,
+              FridgeZone.highHumidity,
+              FridgeZone.lowHumidity,
+            ]),
+            minimumHeight: 220,
+          ),
+          const SizedBox(height: 8),
+          _Compartment(
+            title: 'BOTTOM FREEZER DRAWER',
+            detail: '${model.freezerLevels} storage levels',
+            icon: Icons.ac_unit,
+            items: const ['Frozen foods'],
+            minimumHeight: 110,
+          ),
+        ],
+      );
+
+  Widget _compact(BuildContext context) => Column(
+        children: [
+          _Compartment(
+            title: 'CHILLER / FREEZER BOX',
+            detail: '${model.freezerLevels} small freezer level',
+            icon: Icons.ac_unit,
+            items: const ['Frozen foods'],
+            minimumHeight: 86,
+          ),
+          const SizedBox(height: 8),
+          _Compartment(
+            title: 'COMPACT FRESH-FOOD CABINET',
+            detail:
+                '${model.refrigeratorShelves} shelves · ${model.doorBins} door bins',
+            icon: Icons.kitchen_outlined,
+            items: _names([
+              FridgeZone.topShelf,
+              FridgeZone.middleShelf,
+              FridgeZone.lowerShelf,
+              FridgeZone.door,
+              FridgeZone.highHumidity,
+              FridgeZone.lowHumidity,
+            ]),
+            minimumHeight: 220,
+          ),
+        ],
+      );
+
   List<String> _names(Iterable<FridgeZone> zones) => items
       .where((item) => item.storageLocation == StorageLocation.fridge)
       .where((item) => zones.contains(item.zone))
@@ -463,12 +553,11 @@ class _UnsupportedModelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        color: Theme.of(context).colorScheme.errorContainer,
         child: const ListTile(
-          leading: Icon(Icons.warning_amber_rounded),
-          title: Text('Refrigerator model needs to be selected again'),
+          leading: Icon(Icons.kitchen_outlined),
+          title: Text('Choose your refrigerator model'),
           subtitle: Text(
-            'This profile was created before the verified refrigerator catalog was added.',
+            'This profile does not have a refrigerator selected yet. Open Profile → Refrigerator to choose one before organizing.',
           ),
         ),
       );

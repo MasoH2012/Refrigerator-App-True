@@ -1,46 +1,16 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/fridge_organization.dart';
 import '../../../domain/models/refrigerator_model.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
+import '../../household/application/household_controller.dart';
 import '../data/fridge_organization_service.dart';
 
-const _organizationApiUrl =
-    String.fromEnvironment('FRESHKEEP_ORGANIZATION_API_URL');
-
-final organizationHttpClientProvider = Provider<http.Client>((ref) {
-  final client = http.Client();
-  ref.onDispose(client.close);
-  return client;
-});
-
 final fridgeOrganizationServiceProvider = Provider<FridgeOrganizationService>(
-  (ref) => FridgeOrganizationService(
-    client: ref.watch(organizationHttpClientProvider),
-    endpoint: _organizationEndpoint(),
-  ),
+  (ref) => FridgeOrganizationService(),
 );
-
-Uri? _organizationEndpoint() {
-  final configured = _organizationApiUrl.trim();
-  if (configured.isNotEmpty) {
-    final uri = Uri.tryParse(configured);
-    if (uri != null &&
-        {'http', 'https'}.contains(uri.scheme) &&
-        uri.host.isNotEmpty) {
-      return uri;
-    }
-  }
-  if (!kDebugMode) return null;
-  final host = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-      ? '10.0.2.2'
-      : '127.0.0.1';
-  return Uri.parse('http://$host:8787/fridge-organization');
-}
 
 final fridgeOrganizationProvider = AsyncNotifierProvider<
     FridgeOrganizationController, FridgeOrganizationPlan?>(
@@ -54,9 +24,11 @@ class FridgeOrganizationController
 
   Future<void> generate() async {
     final profile = ref.read(authProvider).value?.profile;
-    final refrigerator = profile == null
-        ? null
-        : RefrigeratorCatalog.byId(profile.refrigeratorModel);
+    final household = ref.read(householdProvider).value?.active;
+    final modelId = household?.refrigeratorModel.isNotEmpty == true
+        ? household!.refrigeratorModel
+        : profile?.refrigeratorModel ?? '';
+    final refrigerator = RefrigeratorCatalog.byId(modelId);
     if (refrigerator == null) {
       state = AsyncError(
         const FridgeOrganizationException(

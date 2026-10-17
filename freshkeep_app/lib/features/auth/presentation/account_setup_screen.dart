@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../data/repositories/repository_providers.dart';
+import '../../../domain/models/data_scope.dart';
 import '../../../domain/models/food_item.dart';
 import '../../../domain/models/refrigerator_model.dart';
 import '../application/auth_controller.dart';
@@ -24,12 +26,19 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
   var _step = 0;
   var _obscurePassword = true;
   var _showRefrigeratorError = false;
+  var _joinHousehold = false;
+  var _accountCreated = false;
+  var _isSubmitting = false;
+  final _householdCode = TextEditingController();
+  final _householdPassword = TextEditingController();
 
   @override
   void dispose() {
     _username.dispose();
     _password.dispose();
     _confirmation.dispose();
+    _householdCode.dispose();
+    _householdPassword.dispose();
     super.dispose();
   }
 
@@ -88,9 +97,16 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
                         if (_step > 0) const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                            onPressed: _continue,
+                            onPressed: _isSubmitting ? null : _continue,
                             child: Text(
-                                _step == 2 ? 'Create profile' : 'Continue'),
+                              _isSubmitting
+                                  ? 'Checking username...'
+                                  : _step == 0 && _joinHousehold
+                                  ? 'Create & join household'
+                                  : _step == 2
+                                      ? 'Create profile'
+                                      : 'Continue',
+                            ),
                           ),
                         ),
                       ],
@@ -123,6 +139,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
               children: [
                 TextFormField(
                   controller: _username,
+                  enabled: !_accountCreated,
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.newUsername],
                   decoration: const InputDecoration(
@@ -137,6 +154,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _password,
+                  enabled: !_accountCreated,
                   obscureText: _obscurePassword,
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.newPassword],
@@ -158,6 +176,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _confirmation,
+                  enabled: !_accountCreated,
                   obscureText: true,
                   decoration: const InputDecoration(
                       labelText: 'Confirm password',
@@ -165,6 +184,61 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
                   validator: (value) => value != _password.text
                       ? 'Passwords do not match.'
                       : null,
+                ),
+                const SizedBox(height: 22),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          value: _joinHousehold,
+                          onChanged: _accountCreated ? null : (value) =>
+                              setState(() => _joinHousehold = value),
+                          title: const Text('Join a household now'),
+                          subtitle: const Text(
+                            'Use the invite code and password shared by the owner. You will skip refrigerator and food setup because the household already has them.',
+                          ),
+                        ),
+                        if (_joinHousehold) ...[
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _householdCode,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: const InputDecoration(
+                              labelText: 'Household invite code',
+                              prefixIcon: Icon(Icons.key_outlined),
+                            ),
+                            validator: (value) {
+                              if (!_joinHousehold) return null;
+                              final code = value?.trim() ?? '';
+                              return code.length != 8
+                                  ? 'Enter the full 8-character invite code.'
+                                  : null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _householdPassword,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Household password',
+                              prefixIcon: Icon(Icons.lock_outline),
+                            ),
+                            validator: (value) {
+                              if (!_joinHousehold) return null;
+                              return value == null || value.trim().isEmpty
+                                  ? 'Enter the household password.'
+                                  : null;
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -250,7 +324,7 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           const Text(
-              'Add at least one item so your inventory and expiration alerts start ready to use.',
+              'Optional. You can add food now or start with an empty inventory and add items later.',
               textAlign: TextAlign.center),
           const SizedBox(height: 22),
           OutlinedButton.icon(
@@ -260,10 +334,11 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
           const SizedBox(height: 14),
           if (_items.isEmpty)
             Card(
-              color: Theme.of(context).colorScheme.errorContainer,
               child: const ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('At least one food item is required.')),
+                leading: Icon(Icons.info_outline),
+                title: Text('No food added yet'),
+                subtitle: Text('You can add items from the Home screen later.'),
+              ),
             )
           else
             ..._items.map((item) => Card(
@@ -284,31 +359,123 @@ class _AccountSetupScreenState extends ConsumerState<AccountSetupScreen> {
 
   Future<void> _continue() async {
     if (_step == 0 && !_accountKey.currentState!.validate()) return;
+    if (_isSubmitting) return;
+
+    // A household already has its shared refrigerator and inventory. Do not
+    // make a new member repeat those setup steps during profile creation.
+    if (_step == 0 && _joinHousehold) {
+      await _runWhileSubmitting(_createProfile);
+      return;
+    }
+    if (_step == 0 && _accountCreated) {
+      setState(() => _step++);
+      return;
+    }
     if (_step == 1 && _selectedRefrigerator == null) {
       setState(() => _showRefrigeratorError = true);
       return;
     }
-    if (_step < 2) {
+    if (_step == 0) {
+      await _runWhileSubmitting(() async {
+        // Creating the Firebase account here makes username availability
+        // authoritative before the wizard advances. A duplicate username is
+        // rejected by FirebaseAuth and remains on this step.
+        final error = await ref.read(authProvider.notifier).register(
+              username: _username.text,
+              password: _password.text,
+              refrigeratorModel: '',
+              initialItems: const [],
+            );
+        if (error != null) {
+          _showError(error);
+          return;
+        }
+        if (mounted) {
+          setState(() {
+            _accountCreated = true;
+            _step++;
+          });
+        }
+      });
+      return;
+    }
+
+    // The account was already validated and created on step 1. Step 2 only
+    // validates the refrigerator selection before moving to food setup.
+    if (_step == 1) {
       setState(() => _step++);
       return;
     }
-    if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Add at least one food item to continue.')));
+
+    await _runWhileSubmitting(_createProfile);
+  }
+
+  Future<void> _createProfile() async {
+    if (_accountCreated) {
+      await _finishExistingAccount();
       return;
     }
+
     final error = await ref.read(authProvider.notifier).register(
           username: _username.text,
           password: _password.text,
-          refrigeratorModel: _selectedRefrigerator!.id,
+          // Household members can choose their own model later. An empty
+          // value avoids pretending that a default refrigerator was selected.
+          refrigeratorModel: _selectedRefrigerator?.id ?? '',
           initialItems: _items,
+          householdInviteCode: _joinHousehold ? _householdCode.text : null,
+          householdPassword: _joinHousehold ? _householdPassword.text : null,
         );
-    if (error != null && mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+    if (error != null) {
+      _showError(error);
     } else if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+
+  Future<void> _finishExistingAccount() async {
+    final profile = ref.read(authProvider).value?.profile;
+    if (profile == null) {
+      _showError('Your account session expired. Please start again.');
+      return;
+    }
+    final refrigerator = _selectedRefrigerator;
+    if (refrigerator == null) {
+      _showError('Choose a refrigerator before continuing.');
+      return;
+    }
+    final refrigeratorError = await ref
+        .read(authProvider.notifier)
+        .updateRefrigeratorModel(refrigerator.id);
+    if (refrigeratorError != null) {
+      _showError(refrigeratorError);
+      return;
+    }
+    try {
+      await ref.read(inventoryRepositoryProvider).saveItems(
+            privateScopeForProfile(profile),
+            _items,
+          );
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      _showError('Could not save your food items: $error');
+    }
+  }
+
+  Future<void> _runWhileSubmitting(Future<void> Function() action) async {
+    if (mounted) setState(() => _isSubmitting = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _showAddFoodDialog() async {

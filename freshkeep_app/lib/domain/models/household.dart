@@ -5,6 +5,7 @@ class Household {
     required this.inviteCode,
     this.passwordHash = '',
     this.ownerUid = '',
+    this.refrigeratorModel = '',
     this.archivedAt,
     required this.ownerUsername,
     required this.members,
@@ -16,6 +17,9 @@ class Household {
   final String inviteCode;
   final String passwordHash;
   final String ownerUid;
+
+  /// The refrigerator used by every member of this household.
+  final String refrigeratorModel;
   final DateTime? archivedAt;
   final String ownerUsername;
   final List<String> members;
@@ -30,6 +34,7 @@ class Household {
     List<String>? members,
     String? passwordHash,
     String? ownerUid,
+    String? refrigeratorModel,
     DateTime? archivedAt,
   }) =>
       Household(
@@ -38,6 +43,7 @@ class Household {
         inviteCode: inviteCode,
         passwordHash: passwordHash ?? this.passwordHash,
         ownerUid: ownerUid ?? this.ownerUid,
+        refrigeratorModel: refrigeratorModel ?? this.refrigeratorModel,
         archivedAt: archivedAt ?? this.archivedAt,
         ownerUsername: ownerUsername,
         members: members ?? this.members,
@@ -50,6 +56,7 @@ class Household {
         'inviteCode': inviteCode,
         'passwordHash': passwordHash,
         'ownerUid': ownerUid,
+        'refrigeratorModel': refrigeratorModel,
         if (archivedAt != null) 'archivedAt': archivedAt!.toIso8601String(),
         'ownerUsername': ownerUsername,
         'members': members,
@@ -62,6 +69,7 @@ class Household {
         inviteCode: json['inviteCode']! as String,
         passwordHash: json['passwordHash'] as String? ?? '',
         ownerUid: json['ownerUid'] as String? ?? '',
+        refrigeratorModel: json['refrigeratorModel'] as String? ?? '',
         archivedAt: json['archivedAt'] is String
             ? DateTime.tryParse(json['archivedAt']! as String)
             : null,

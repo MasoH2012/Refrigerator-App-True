@@ -79,6 +79,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     required String username,
     required String name,
     required String password,
+    String refrigeratorModel = '',
   }) async {
     final trimmedName = name.trim();
     final trimmedPassword = password.trim();
@@ -90,13 +91,17 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
           'Choose a household password with at least 4 characters.');
     }
     final id = const Uuid().v4();
-    final inviteCode = await _newInviteCode();
+    // A longer random code makes collisions negligible and avoids a
+    // pre-create read of a nonexistent invite document. Firestore rules
+    // intentionally reject reads of unknown invite codes.
+    final inviteCode = _newInviteCode();
     final household = Household(
       id: id,
       name: trimmedName,
       inviteCode: inviteCode,
       passwordHash: _hashPassword(trimmedPassword),
       ownerUid: uid,
+      refrigeratorModel: refrigeratorModel.trim(),
       ownerUsername: username.trim(),
       members: [username.trim()],
       createdAt: DateTime.now(),
@@ -316,6 +321,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         'inviteCode': household.inviteCode,
         'passwordHash': household.passwordHash,
         'ownerUid': household.ownerUid,
+        'refrigeratorModel': household.refrigeratorModel,
         'ownerUsername': household.ownerUsername,
         'createdAt': household.createdAt.toIso8601String(),
         if (household.archivedAt != null)
@@ -361,15 +367,11 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
   DocumentReference<Map<String, dynamic>> _invite(String code) =>
       _firestore.collection('householdInvites').doc(code);
 
-  Future<String> _newInviteCode() async {
+  String _newInviteCode() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final random = Random.secure();
-    for (;;) {
-      final code =
-          List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)])
-              .join();
-      if (!(await _invite(code).get()).exists) return code;
-    }
+    return List.generate(8, (_) => alphabet[random.nextInt(alphabet.length)])
+        .join();
   }
 
   String _hashPassword(String password) =>

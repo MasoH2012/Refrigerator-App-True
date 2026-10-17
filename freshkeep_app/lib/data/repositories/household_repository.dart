@@ -16,7 +16,8 @@ abstract interface class HouseholdRepository {
       {required String uid,
       required String username,
       required String name,
-      required String password});
+      required String password,
+      String refrigeratorModel = ''});
   Future<Household> join(
       {required String uid,
       required String username,
@@ -84,6 +85,7 @@ class PreferencesHouseholdRepository implements HouseholdRepository {
     required String username,
     required String name,
     required String password,
+    String refrigeratorModel = '',
   }) async {
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
@@ -101,6 +103,7 @@ class PreferencesHouseholdRepository implements HouseholdRepository {
       inviteCode: _newInviteCode(households),
       passwordHash: _hashPassword(trimmedPassword),
       ownerUid: uid,
+      refrigeratorModel: refrigeratorModel.trim(),
       ownerUsername: username.trim(),
       members: [username.trim()],
       createdAt: DateTime.now(),

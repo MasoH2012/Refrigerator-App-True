@@ -7,7 +7,9 @@ import '../../../domain/models/recipe.dart';
 import '../../../domain/models/recipe_filters.dart';
 import '../../inventory/application/inventory_controller.dart';
 import '../application/recipe_suggestions_controller.dart';
+import '../application/saved_recipes_controller.dart';
 import '../data/recipe_suggestion_service.dart';
+import 'create_recipe_sheet.dart';
 
 class RecipesScreen extends ConsumerStatefulWidget {
   const RecipesScreen({super.key});
@@ -23,6 +25,7 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
   Widget build(BuildContext context) {
     final inventory = ref.watch(inventoryProvider).value ?? const <FoodItem>[];
     final suggestions = ref.watch(recipeSuggestionsProvider);
+    final savedRecipes = ref.watch(savedRecipesProvider);
 
     return SafeArea(
       child: RefreshIndicator(
@@ -62,10 +65,24 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
                             ],
                           ),
                         ),
-                        IconButton.filledTonal(
-                          tooltip: 'Refresh recipe suggestions',
-                          onPressed: suggestions.isLoading ? null : _refresh,
-                          icon: const Icon(Icons.refresh),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton.filledTonal(
+                              tooltip: 'Generate with AI',
+                              onPressed: suggestions.isLoading
+                                  ? null
+                                  : _generateWithAi,
+                              icon: const Icon(Icons.auto_awesome),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton.filledTonal(
+                              tooltip: 'Refresh recipe suggestions',
+                              onPressed:
+                                  suggestions.isLoading ? null : _refresh,
+                              icon: const Icon(Icons.refresh),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -117,12 +134,18 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
                           ),
                           onPressed: () => _showFilters(inventory),
                         ),
+                        ActionChip(
+                          avatar: const Icon(Icons.edit_note, size: 18),
+                          label: const Text('Create recipe'),
+                          onPressed: _createRecipe,
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
             ),
+            ..._savedRecipeSlivers(savedRecipes),
             ...suggestions.when(
               loading: () => const [
                 SliverFillRemaining(
@@ -157,19 +180,6 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
     RecipeSuggestionResult result,
     List<FoodItem> inventory,
   ) {
-    if (inventory.isEmpty) {
-      return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: _EmptyRecipes(
-            icon: Icons.kitchen_outlined,
-            title: 'Your fridge is empty',
-            message: 'Add food on the Home tab to get tailored recipes.',
-          ),
-        ),
-      ];
-    }
-
     if (result.recipes.isEmpty) {
       final unavailable = result.source == RecipeSuggestionSource.unavailable;
       return [
@@ -177,11 +187,11 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
           hasScrollBody: false,
           child: _EmptyRecipes(
             icon: unavailable
-                ? Icons.auto_awesome_outlined
+                ? Icons.restaurant_menu_outlined
                 : Icons.filter_alt_off_outlined,
             title: unavailable
-                ? 'AI recipes are unavailable'
-                : 'No AI recipe matches every filter',
+                ? 'No recipes available yet'
+                : 'No recipe matches every filter',
             message: result.notice ??
                 'Try allowing one shopping item or removing a must-use ingredient.',
             actionLabel: unavailable ? 'Try again' : 'Reset filters',
@@ -212,8 +222,8 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
             if (index == result.recipes.length) {
               return FilledButton.icon(
                 onPressed: _refresh,
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('Generate new recipe ideas'),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh recipe ideas'),
               );
             }
             return index == 0
@@ -227,6 +237,57 @@ class _RecipesScreenState extends ConsumerState<RecipesScreen> {
 
   Future<void> _refresh() =>
       ref.read(recipeSuggestionsProvider.notifier).refresh(filters: _filters);
+
+  Future<void> _generateWithAi() =>
+      ref.read(recipeSuggestionsProvider.notifier).generateWithAi();
+
+  List<Widget> _savedRecipeSlivers(AsyncValue<List<Recipe>> savedRecipes) {
+    final recipes = savedRecipes.value ?? const <Recipe>[];
+    if (recipes.isEmpty) return const [];
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+        sliver: SliverToBoxAdapter(
+          child: Text(
+            'My recipes',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+        sliver: SliverList.separated(
+          itemCount: recipes.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (_, index) => _RecipeCard(recipe: recipes[index]),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _createRecipe() async {
+    final recipe = await showModalBottomSheet<Recipe>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const CreateRecipeSheet(),
+    );
+    if (recipe == null || !mounted) return;
+    try {
+      await ref.read(savedRecipesProvider.notifier).save(recipe);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Recipe saved to My recipes.')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save recipe: $error')),
+        );
+      }
+    }
+  }
 
   Future<void> _applyFilters(RecipeFilters filters) async {
     setState(() => _filters = filters);
@@ -273,14 +334,22 @@ class _SuggestionSummary extends StatelessWidget {
             leading: CircleAvatar(
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              child: const Icon(Icons.auto_awesome),
+              child: Icon(
+                result.source == RecipeSuggestionSource.aiGenerated
+                    ? Icons.auto_awesome
+                    : Icons.restaurant_menu,
+              ),
             ),
-            title: const Text(
-              'FreshKeep AI recipes',
+            title: Text(
+              result.source == RecipeSuggestionSource.aiGenerated
+                  ? 'AI recipe ideas'
+                  : 'FreshKeep recipe ideas',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             subtitle: Text(
-              'Created or discovered for $inventoryCount available fridge items.',
+              result.source == RecipeSuggestionSource.aiGenerated
+                  ? 'Generated from $inventoryCount available fridge items.'
+                  : 'Created for $inventoryCount available fridge items.',
             ),
           ),
         ),
@@ -399,8 +468,6 @@ class _RecipeCard extends StatelessWidget {
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                           ),
-                          if (recipe.isAiAssisted)
-                            const Icon(Icons.auto_awesome, size: 18),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -450,7 +517,7 @@ class _RecipeBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        recipe.isAiAssisted ? 'AI · $label' : 'BEST MATCH · $label',
+        'BEST MATCH · $label',
         style: const TextStyle(
           color: Color(0xFF17352B),
           fontWeight: FontWeight.w800,
@@ -491,7 +558,7 @@ class _RecipeArtwork extends StatelessWidget {
         ),
         child: Center(
           child: Icon(
-            recipe.isAiAssisted ? Icons.auto_awesome : Icons.restaurant,
+            Icons.restaurant,
             size: 48,
             color: Theme.of(context).colorScheme.primary,
           ),
@@ -560,7 +627,7 @@ class _RecipeFiltersSheetState extends State<_RecipeFiltersSheet> {
               ],
             ),
             const Text(
-              'FreshKeep checks these preferences again after AI responds.',
+              'FreshKeep applies these preferences to curated and AI recipe ideas.',
             ),
             const SizedBox(height: 20),
             Text('Servings', style: Theme.of(context).textTheme.titleMedium),

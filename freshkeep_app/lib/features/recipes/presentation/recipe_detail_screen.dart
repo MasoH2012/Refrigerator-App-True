@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/recipe.dart';
 import '../application/recipe_suggestions_controller.dart';
+import '../application/saved_recipes_controller.dart';
 import '../../shopping/application/shopping_list_controller.dart';
 import 'cooking_mode_screen.dart';
 
@@ -16,7 +17,10 @@ class RecipeDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final suggested =
         ref.watch(recipeSuggestionsProvider).value?.recipes ?? const [];
-    final recipe = suggested.where((item) => item.id == recipeId).firstOrNull;
+    final saved = ref.watch(savedRecipesProvider).value ?? const [];
+    final recipe = [...suggested, ...saved]
+        .where((item) => item.id == recipeId)
+        .firstOrNull;
     if (recipe == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Recipe')),
@@ -24,7 +28,7 @@ class RecipeDetailScreen extends ConsumerWidget {
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              'This generated recipe is no longer available. Return to Recipes and generate a new set.',
+              'This recipe is no longer available. Return to Recipes and choose another one.',
               textAlign: TextAlign.center,
             ),
           ),
@@ -149,6 +153,24 @@ class RecipeDetailScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Text(
+                  'Materials needed',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: recipe.equipment
+                      .map(
+                        (tool) => Chip(
+                          avatar: const Icon(Icons.handyman_outlined, size: 18),
+                          label: Text(tool),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 12),
                 Text('Method', style: Theme.of(context).textTheme.titleLarge),
                 ...recipe.steps.indexed.map(
                   (step) => ListTile(
@@ -174,7 +196,7 @@ class RecipeDetailScreen extends ConsumerWidget {
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'AI-created recipes and calorie values are estimates. Check labels for allergens and follow safe cooking guidance.',
+                              'Calorie values are estimates. Check labels for allergens and follow safe cooking guidance.',
                             ),
                           ),
                         ],
@@ -251,8 +273,9 @@ class _RecipeHero extends StatelessWidget {
 
 String _originLabel(Recipe recipe) => switch (recipe.origin) {
       RecipeOrigin.curated => 'CURATED RECIPE',
-      RecipeOrigin.adapted => 'AI-ADAPTED RECIPE',
-      RecipeOrigin.aiGenerated => 'AI-CREATED RECIPE',
+      RecipeOrigin.adapted => 'ADAPTED RECIPE',
+      RecipeOrigin.aiGenerated => 'RECIPE',
+      RecipeOrigin.userCreated => 'MY RECIPE',
     };
 
 IconData _ingredientIcon(RecipeIngredientSource source) => switch (source) {

@@ -155,8 +155,8 @@ class FreshKeepDataService {
           'Season to taste and serve immediately.',
         ],
         servings: 2,
-        origin: RecipeOrigin.aiGenerated,
-        tags: const ['placeholder', 'use what you have'],
+        origin: RecipeOrigin.curated,
+        tags: const ['curated', 'use what you have'],
         caloriesAreEstimated: true,
       ),
     ];

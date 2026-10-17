@@ -52,7 +52,11 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     );
   }
 
-  Future<String?> create(String name, String password) async {
+  Future<String?> create(
+    String name,
+    String password, {
+    String refrigeratorModel = '',
+  }) async {
     final profile = ref.read(authProvider).value?.profile;
     if (profile == null) return 'Sign in before creating a household.';
     final uid = userIdForProfile(profile);
@@ -73,6 +77,7 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
             username: profile.username,
             name: name,
             password: password,
+            refrigeratorModel: refrigeratorModel,
           );
       await _savePassword(uid, household.id, password);
       // Move the pre-household personal data into the first shared household.
@@ -113,21 +118,55 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
     }
   }
 
-  Future<String?> join(String code, String password) async {
+  Future<String?> join(
+    String code,
+    String password, {
+    bool mergePersonalItems = true,
+  }) async {
     final profile = ref.read(authProvider).value?.profile;
     if (profile == null) return 'Sign in before joining a household.';
+    final uid = userIdForProfile(profile);
+    final privateScope = privateScopeForProfile(profile);
+    final inventoryRepository = ref.read(inventoryRepositoryProvider);
+    final shoppingRepository = ref.read(shoppingListRepositoryProvider);
     try {
+      // Read personal data before joining. After the join, the active scope is
+      // the household and the private collection is no longer visible in Home.
+      final personalItems = await inventoryRepository.loadItems(privateScope);
+      final personalShopping = await shoppingRepository.load(privateScope);
       final joinedHousehold = await ref.read(householdRepositoryProvider).join(
-            uid: userIdForProfile(profile),
+            uid: uid,
             username: profile.username,
             inviteCode: code,
             password: password,
           );
-      await _savePassword(
-        userIdForProfile(profile),
-        joinedHousehold.id,
-        password,
+      await _savePassword(uid, joinedHousehold.id, password);
+      final sharedScope = DataScope.household(
+        uid: uid,
+        householdId: joinedHousehold.id,
+        legacyOwnerId: profile.username,
       );
+      final sharedItems = await inventoryRepository.loadItems(sharedScope);
+      final sharedShopping = await shoppingRepository.load(sharedScope);
+      if (mergePersonalItems) {
+        await inventoryRepository.saveItems(
+          sharedScope,
+          [...sharedItems, ...personalItems],
+        );
+        await shoppingRepository.save(
+          sharedScope,
+          [...sharedShopping, ...personalShopping],
+        );
+      }
+      // Only clear private data after all shared writes have succeeded.
+      await inventoryRepository.saveItems(privateScope, const []);
+      await shoppingRepository.save(privateScope, const []);
+      if (joinedHousehold.refrigeratorModel.isNotEmpty &&
+          joinedHousehold.refrigeratorModel != profile.refrigeratorModel) {
+        await ref
+            .read(authProvider.notifier)
+            .updateRefrigeratorModel(joinedHousehold.refrigeratorModel);
+      }
       await _refresh();
       return null;
     } on HouseholdException catch (error) {
@@ -152,12 +191,16 @@ class HouseholdController extends AsyncNotifier<HouseholdState> {
   Future<String?> leave(String householdId) async {
     final profile = ref.read(authProvider).value?.profile;
     if (profile == null) return 'Sign in before leaving a household.';
+    final uid = userIdForProfile(profile);
     try {
       await ref.read(householdRepositoryProvider).leave(
-            uid: userIdForProfile(profile),
+            uid: uid,
             username: profile.username,
             householdId: householdId,
           );
+      // The membership is gone, so remove only this device's saved secret.
+      // Shared household inventory and the household itself remain untouched.
+      await _deleteSavedPassword(uid, householdId);
       await _refresh();
       return null;
     } on HouseholdException catch (error) {

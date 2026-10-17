@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../domain/models/recipe_filters.dart';
 import '../../../domain/models/app_preferences.dart';
@@ -8,40 +7,20 @@ import '../../../domain/models/data_scope.dart';
 import '../../../data/repositories/repository_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../inventory/application/inventory_controller.dart';
+import '../data/ai_recipe_suggestion_service.dart';
 import '../data/recipe_suggestion_service.dart';
 
-const _recipeApiUrl = String.fromEnvironment('FRESHKEEP_RECIPE_API_URL');
-
-final recipeHttpClientProvider = Provider<http.Client>((ref) {
-  final client = http.Client();
-  ref.onDispose(client.close);
-  return client;
-});
-
 final recipeSuggestionServiceProvider = Provider<RecipeSuggestionService>(
-  (ref) => HybridRecipeSuggestionService(
-    client: ref.watch(recipeHttpClientProvider),
-    endpoint: _configuredEndpoint(),
-  ),
+  (ref) => CuratedRecipeSuggestionService(now: DateTime.now),
 );
 
-Uri? _configuredEndpoint() {
-  final configured = _recipeApiUrl.trim();
-  if (configured.isNotEmpty) {
-    final uri = Uri.tryParse(configured);
-    if (uri != null &&
-        {'http', 'https'}.contains(uri.scheme) &&
-        uri.host.isNotEmpty) {
-      return uri;
-    }
-  }
-
-  if (!kDebugMode) return null;
-  final host = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-      ? '10.0.2.2'
-      : '127.0.0.1';
-  return Uri.parse('http://$host:8787/recipe-suggestions');
-}
+final aiRecipeSuggestionServiceProvider = Provider<RecipeSuggestionService?>(
+  (ref) {
+    final endpoint = _recipeAiEndpoint();
+    if (endpoint == null) return null;
+    return AiRecipeSuggestionService(endpoint: endpoint);
+  },
+);
 
 final recipeSuggestionsProvider =
     AsyncNotifierProvider<RecipeSuggestionsController, RecipeSuggestionResult>(
@@ -111,4 +90,92 @@ class RecipeSuggestionsController
       }
     }
   }
+
+  /// Requests the optional AI ideas without making them a dependency of the
+  /// Recipes screen. If the local service is stopped or unavailable, the app
+  /// keeps the curated catalog visible and explains what happened.
+  Future<void> generateWithAi() async {
+    final requestVersion = ++_requestVersion;
+    state = const AsyncLoading<RecipeSuggestionResult>();
+    try {
+      final aiService = ref.read(aiRecipeSuggestionServiceProvider);
+      if (aiService == null) {
+        throw const RecipeSuggestionException(
+          'AI recipes are not configured for this build.',
+        );
+      }
+      final items = await ref.read(inventoryProvider.future);
+      final profile = ref.read(authProvider).value?.profile;
+      final preferences = profile == null
+          ? const AppPreferences()
+          : await ref
+              .read(userPreferencesRepositoryProvider)
+              .load(privateScopeForProfile(profile));
+      final dietaryVegetarian = preferences.dietaryPreference == 'Vegetarian' ||
+          preferences.dietaryPreference == 'Vegan';
+      final filtersToUse = _filters.copyWith(
+        vegetarian: _filters.vegetarian || dietaryVegetarian,
+        avoidedIngredients: {
+          ..._filters.avoidedIngredients,
+          ...preferences.allergies,
+        },
+      );
+      final result = await aiService.suggest(
+        items: items,
+        filters: filtersToUse,
+      );
+      if (requestVersion == _requestVersion) state = AsyncData(result);
+    } on Object catch (error, stackTrace) {
+      if (requestVersion != _requestVersion) return;
+      try {
+        final fallback = await _curatedFallback();
+        state = AsyncData(
+          fallback.copyWith(
+            notice:
+                'AI is unavailable right now, so FreshKeep is showing curated recipes instead. (${_friendlyError(error)})',
+          ),
+        );
+      } on Object {
+        state = AsyncError(error, stackTrace);
+      }
+    }
+  }
+
+  Future<RecipeSuggestionResult> _curatedFallback() async {
+    final items = await ref.read(inventoryProvider.future);
+    final profile = ref.read(authProvider).value?.profile;
+    final preferences = profile == null
+        ? const AppPreferences()
+        : await ref
+            .read(userPreferencesRepositoryProvider)
+            .load(privateScopeForProfile(profile));
+    final dietaryVegetarian = preferences.dietaryPreference == 'Vegetarian' ||
+        preferences.dietaryPreference == 'Vegan';
+    final filtersToUse = _filters.copyWith(
+      vegetarian: _filters.vegetarian || dietaryVegetarian,
+      avoidedIngredients: {
+        ..._filters.avoidedIngredients,
+        ...preferences.allergies,
+      },
+    );
+    return ref.read(recipeSuggestionServiceProvider).suggest(
+          items: items,
+          filters: filtersToUse,
+        );
+  }
+
+  String _friendlyError(Object error) {
+    if (error is RecipeSuggestionException) return error.message;
+    return 'Please check that the recipe service is running.';
+  }
+}
+
+Uri? _recipeAiEndpoint() {
+  const configured = String.fromEnvironment('FRESHKEEP_RECIPE_API_URL');
+  if (configured.isNotEmpty) return Uri.tryParse(configured);
+  if (!kDebugMode) return null;
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return Uri.parse('http://10.0.2.2:8787/recipe-suggestions');
+  }
+  return Uri.parse('http://127.0.0.1:8787/recipe-suggestions');
 }

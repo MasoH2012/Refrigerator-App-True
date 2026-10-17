@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/models/household.dart';
+import '../../../domain/models/refrigerator_model.dart';
 import '../application/household_controller.dart';
 import '../../auth/application/auth_controller.dart';
 
@@ -84,15 +85,17 @@ class HouseholdScreen extends ConsumerWidget {
       builder: (_) => const _CreateHouseholdDialog(),
     );
     if (credentials == null || !context.mounted) return;
-    final error = await ref
-        .read(householdProvider.notifier)
-        .create(credentials.name, credentials.password);
+    final error = await ref.read(householdProvider.notifier).create(
+          credentials.name,
+          credentials.password,
+          refrigeratorModel: credentials.refrigeratorModel,
+        );
     if (error != null && context.mounted) _showError(context, error);
     if (error == null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Household created. Save the password you entered; it cannot be displayed later.',
+            'Household created. Its refrigerator and inventory are now shared with members.',
           ),
         ),
       );
@@ -105,9 +108,11 @@ class HouseholdScreen extends ConsumerWidget {
       builder: (_) => const _JoinHouseholdDialog(),
     );
     if (credentials == null || !context.mounted) return;
-    final error = await ref
-        .read(householdProvider.notifier)
-        .join(credentials.code, credentials.password);
+    final error = await ref.read(householdProvider.notifier).join(
+          credentials.code,
+          credentials.password,
+          mergePersonalItems: credentials.mergePersonalItems,
+        );
     if (error != null && context.mounted) _showError(context, error);
   }
 
@@ -130,7 +135,7 @@ class HouseholdScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: Text('Leave ${household.name}?'),
         content: const Text(
-            'You will no longer see this household’s inventory or shopping list.'),
+            'You will leave this household and lose access to its shared inventory and shopping list. Other members and their data will remain unchanged.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -176,12 +181,19 @@ class HouseholdScreen extends ConsumerWidget {
 
   Future<void> _deleteHousehold(
       BuildContext context, WidgetRef ref, Household household) async {
+    final isOnlyMember = household.members.length <= 1;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete ${household.name}?'),
-        content: const Text(
-          'This removes the household from everyone’s active list and stops sharing access. Existing cloud data is archived safely.',
+        title: Text(
+          isOnlyMember
+              ? 'Leave and archive ${household.name}?'
+              : 'Archive ${household.name}?',
+        ),
+        content: Text(
+          isOnlyMember
+              ? 'You are the only member. This will safely leave the household and archive its shared data so it is no longer active.'
+              : 'This removes the household from everyone’s active list and stops sharing access. Existing cloud data is archived safely.',
         ),
         actions: [
           TextButton(
@@ -190,7 +202,8 @@ class HouseholdScreen extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete household'),
+            child:
+                Text(isOnlyMember ? 'Leave and archive' : 'Archive household'),
           ),
         ],
       ),
@@ -282,6 +295,7 @@ class _HouseholdCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final refrigerator = RefrigeratorCatalog.byId(household.refrigeratorModel);
     final isOwner = household.ownerUid.isNotEmpty
         ? household.ownerUid == uid
         : household.ownerUsername.trim().toLowerCase() ==
@@ -295,7 +309,9 @@ class _HouseholdCard extends StatelessWidget {
                 child: Icon(active ? Icons.home : Icons.home_outlined)),
             title: Text(household.name),
             subtitle: Text(
-                '${household.members.length} member${household.members.length == 1 ? '' : 's'}'),
+              '${household.members.length} member${household.members.length == 1 ? '' : 's'}'
+              '${refrigerator == null ? '' : ' · ${refrigerator.shortName}'}',
+            ),
             trailing: active
                 ? const Chip(label: Text('Active'))
                 : TextButton(onPressed: onSelect, child: const Text('Use')),
@@ -348,8 +364,14 @@ class _HouseholdCard extends StatelessWidget {
                   const PopupMenuItem(value: 'rename', child: Text('Rename')),
                   const PopupMenuItem(
                       value: 'password', child: Text('Change password')),
-                  const PopupMenuItem(
-                      value: 'delete', child: Text('Delete household')),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(
+                      household.members.length <= 1
+                          ? 'Leave and archive household'
+                          : 'Archive household',
+                    ),
+                  ),
                 ],
                 if (!isOwner)
                   const PopupMenuItem(
@@ -364,10 +386,15 @@ class _HouseholdCard extends StatelessWidget {
 }
 
 class _HouseholdCredentials {
-  const _HouseholdCredentials({required this.name, required this.password});
+  const _HouseholdCredentials({
+    required this.name,
+    required this.password,
+    required this.refrigeratorModel,
+  });
 
   final String name;
   final String password;
+  final String refrigeratorModel;
 }
 
 class _CreateHouseholdDialog extends StatefulWidget {
@@ -380,6 +407,7 @@ class _CreateHouseholdDialog extends StatefulWidget {
 class _CreateHouseholdDialogState extends State<_CreateHouseholdDialog> {
   final _name = TextEditingController(text: 'Our kitchen');
   final _password = TextEditingController();
+  String _refrigeratorModel = RefrigeratorCatalog.alphabetized.first.id;
 
   @override
   void dispose() {
@@ -399,6 +427,24 @@ class _CreateHouseholdDialogState extends State<_CreateHouseholdDialog> {
               autofocus: true,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Household name'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _refrigeratorModel,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Household refrigerator',
+                helperText: 'Everyone in this household uses this model.',
+              ),
+              items: RefrigeratorCatalog.alphabetized
+                  .map((model) => DropdownMenuItem(
+                        value: model.id,
+                        child: Text(model.displayName),
+                      ))
+                  .toList(),
+              onChanged: (value) => setState(() {
+                if (value != null) _refrigeratorModel = value;
+              }),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -433,7 +479,11 @@ class _CreateHouseholdDialogState extends State<_CreateHouseholdDialog> {
               }
               Navigator.pop(
                 context,
-                _HouseholdCredentials(name: name, password: password),
+                _HouseholdCredentials(
+                  name: name,
+                  password: password,
+                  refrigeratorModel: _refrigeratorModel,
+                ),
               );
             },
             child: const Text('Create'),
@@ -452,6 +502,7 @@ class _JoinHouseholdDialog extends StatefulWidget {
 class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
   final _code = TextEditingController();
   final _password = TextEditingController();
+  bool _mergePersonalItems = true;
 
   @override
   void dispose() {
@@ -470,10 +521,46 @@ class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
               controller: _code,
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
+              maxLength: 8,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
+                LengthLimitingTextInputFormatter(8),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Invite code',
-                hintText: 'Example: FRESH7',
+                hintText: 'Example: 8V552MGA',
+                helperText: 'Enter all 8 characters shown next to the key.',
               ),
+            ),
+            const SizedBox(height: 12),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Your current personal inventory',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            RadioListTile<bool>(
+              contentPadding: EdgeInsets.zero,
+              value: true,
+              groupValue: _mergePersonalItems,
+              onChanged: (value) => setState(() {
+                if (value != null) _mergePersonalItems = value;
+              }),
+              title: const Text('Merge into the household'),
+              subtitle: const Text(
+                  'Keep your items and add them to the shared fridge.'),
+            ),
+            RadioListTile<bool>(
+              contentPadding: EdgeInsets.zero,
+              value: false,
+              groupValue: _mergePersonalItems,
+              onChanged: (value) => setState(() {
+                if (value != null) _mergePersonalItems = value;
+              }),
+              title: const Text('Discard my personal items'),
+              subtitle:
+                  const Text('Keep the household fridge exactly as it is.'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -494,11 +581,11 @@ class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
             onPressed: () {
               final code = _code.text.trim();
               final password = _password.text.trim();
-              if (code.isEmpty || password.isEmpty) {
+              if (code.length != 8 || password.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      'Enter the invite code and household password.',
+                      'Enter the full 8-character invite code and password.',
                     ),
                   ),
                 );
@@ -506,7 +593,11 @@ class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
               }
               Navigator.pop(
                 context,
-                _HouseholdJoinCredentials(code: code, password: password),
+                _HouseholdJoinCredentials(
+                  code: code,
+                  password: password,
+                  mergePersonalItems: _mergePersonalItems,
+                ),
               );
             },
             child: const Text('Join'),
@@ -711,8 +802,13 @@ class _SavedHouseholdPasswordDialogState
 }
 
 class _HouseholdJoinCredentials {
-  const _HouseholdJoinCredentials({required this.code, required this.password});
+  const _HouseholdJoinCredentials({
+    required this.code,
+    required this.password,
+    required this.mergePersonalItems,
+  });
 
   final String code;
   final String password;
+  final bool mergePersonalItems;
 }
