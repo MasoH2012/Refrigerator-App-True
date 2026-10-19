@@ -1,4 +1,5 @@
 .dart_tool/
+.idea/
 .tooling/
 .flutter-plugins
 .flutter-plugins-dependencies
