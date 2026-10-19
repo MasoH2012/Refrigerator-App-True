@@ -430,7 +430,7 @@ class _CreateHouseholdDialogState extends State<_CreateHouseholdDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _refrigeratorModel,
+              initialValue: _refrigeratorModel,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Household refrigerator',
@@ -540,27 +540,29 @@ class _JoinHouseholdDialogState extends State<_JoinHouseholdDialog> {
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
-            RadioListTile<bool>(
-              contentPadding: EdgeInsets.zero,
-              value: true,
+            RadioGroup<bool>(
               groupValue: _mergePersonalItems,
               onChanged: (value) => setState(() {
                 if (value != null) _mergePersonalItems = value;
               }),
-              title: const Text('Merge into the household'),
-              subtitle: const Text(
-                  'Keep your items and add them to the shared fridge.'),
-            ),
-            RadioListTile<bool>(
-              contentPadding: EdgeInsets.zero,
-              value: false,
-              groupValue: _mergePersonalItems,
-              onChanged: (value) => setState(() {
-                if (value != null) _mergePersonalItems = value;
-              }),
-              title: const Text('Discard my personal items'),
-              subtitle:
-                  const Text('Keep the household fridge exactly as it is.'),
+              child: Column(
+                children: [
+                  RadioListTile<bool>(
+                    contentPadding: EdgeInsets.zero,
+                    value: true,
+                    title: const Text('Merge into the household'),
+                    subtitle: const Text(
+                        'Keep your items and add them to the shared fridge.'),
+                  ),
+                  RadioListTile<bool>(
+                    contentPadding: EdgeInsets.zero,
+                    value: false,
+                    title: const Text('Discard my personal items'),
+                    subtitle: const Text(
+                        'Keep the household fridge exactly as it is.'),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
