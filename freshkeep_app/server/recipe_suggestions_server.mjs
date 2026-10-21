@@ -35,6 +35,7 @@ const recipeSchema = {
           'tags',
           'ingredients',
           'steps',
+          'equipment',
         ],
         properties: {
           name: { type: 'string' },
@@ -65,6 +66,7 @@ const recipeSchema = {
             },
           },
           steps: { type: 'array', items: { type: 'string' } },
+          equipment: { type: 'array', items: { type: 'string' } },
         },
       },
     },
@@ -122,6 +124,7 @@ Rules:
 - Put every other required ingredient in shopping.
 - Never include an avoided ingredient, including an obvious derivative.
 - Mark vegetarian recipes with the tag "vegetarian".
+- Include an equipment array with the real tools needed, such as "Blender", "Large skillet", or "9x13 baking dish". Keep it short and do not include ingredients in this list.
 - Calories are estimates per serving. Do not make medical or allergy-safety claims.
 - ${enableWebSearch ? 'For a web-discovered recipe, rewrite and adapt the instructions rather than copying prose, use origin "adapted", and provide the exact source URL returned by web search.' : 'Use origin "aiGenerated" and an empty sourceUrl for every recipe.'}
 - ${enableWebSearch ? 'For an original recipe, use origin "aiGenerated" and an empty sourceUrl.' : ''}
@@ -511,6 +514,12 @@ function reconcileRecipe(recipe, itemMap, index, webSources) {
       : [],
     ingredients,
     steps: recipe.steps.slice(0, 20).map((step) => String(step).slice(0, 500)),
+    equipment:
+      Array.isArray(recipe.equipment) && recipe.equipment.length > 0
+        ? recipe.equipment
+            .slice(0, 10)
+            .map((tool) => String(tool).slice(0, 80))
+        : ['Knife', 'Cutting board'],
     caloriesAreEstimated: true,
   };
 }
